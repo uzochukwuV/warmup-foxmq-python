@@ -19,22 +19,22 @@ FoxMQ is a Byzantine fault-tolerant MQTT 5.0 broker powered by Vertex consensus.
 
 **Linux (amd64)**
 ```sh
-curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.0/foxmq_0.3.0_linux-amd64.zip
-unzip foxmq_0.3.0_linux-amd64.zip
+curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.1/foxmq_0.3.1_linux-amd64.zip
+unzip foxmq_0.3.1_linux-amd64.zip
 chmod +x foxmq
 ```
 
 **macOS (Apple Silicon + Intel universal)**
 ```sh
-curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.0/foxmq_0.3.0_macos-universal.zip
-unzip foxmq_0.3.0_macos-universal.zip
+curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.1/foxmq_0.3.1_macos-universal.zip
+unzip foxmq_0.3.1_macos-universal.zip
 chmod +x foxmq
 ```
 
 **Windows (PowerShell)**
 ```powershell
-curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.0/foxmq_0.3.0_windows-amd64.zip
-Expand-Archive foxmq_0.3.0_windows-amd64.zip .
+curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.1/foxmq_0.3.1_windows-amd64.zip
+Expand-Archive foxmq_0.3.1_windows-amd64.zip .
 ```
 
 **Then set up and run:**
