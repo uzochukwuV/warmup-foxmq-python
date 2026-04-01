@@ -149,24 +149,13 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
     return event
 
 
-def is_valid_topic_event(topic: str, event_type: str) -> bool:
-    allowed_types = VALID_TOPIC_EVENT_TYPES.get(topic)
-    if allowed_types is None:
-        return False
-    return event_type in allowed_types
-
-
-def to_millis(ts: float) -> int:
+def to_millis(ts: int) -> int:
     """
     Normalize timestamps to epoch milliseconds.
     - 10-digit-ish values are interpreted as seconds
     - 13-digit-ish values are interpreted as milliseconds
     """
-    # Reject impossible/negative timestamps.
-    if ts < 0:
-        raise ValueError("timestamp must be non-negative")
-    ts_int = int(ts)
-    return ts_int * 1000 if ts_int < 1_000_000_000_000 else ts_int
+    return ts * 1000 if ts < 1_000_000_000_000 else ts
 
 
 def seen_recently(event: dict) -> bool:
@@ -196,13 +185,7 @@ def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerSta
         status="ready",
     )
 
-    if event["type"] not in ALLOWED_EVENT_TYPES:
-        return baseline
-
-    try:
-        incoming_last_seen_ms = to_millis(event["ts"])
-    except (TypeError, ValueError):
-        return None
+    incoming_last_seen_ms = to_millis(event["ts"])
     if incoming_last_seen_ms < baseline.last_seen_ms:
         # Deterministic drop rule for delayed/out-of-order messages.
         return None
@@ -301,14 +284,10 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     payload = message.payload.decode("utf-8")
     recv_order_index = next_recv_order_index()
 
-    payload_for_log = payload if len(payload) <= MAX_LOG_PAYLOAD_CHARS else f"{payload[:MAX_LOG_PAYLOAD_CHARS]}..."
-    print(f"[RECV] idx={recv_order_index} topic={topic} payload={payload_for_log}")
+    print(f"[RECV] idx={recv_order_index} topic={topic} payload={payload}")
 
     event = parse_message(topic, payload)
     if event is None:
-        return
-    if not is_valid_topic_event(topic, event["type"]):
-        print(f"[DROP] invalid topic/type topic={topic} type={event['type']}")
         return
 
     with STATE_LOCK:
@@ -325,9 +304,8 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
             return
         STATE[event["peer_id"]] = next_state
         apply_stale_detection(STATE, now_ms())
-        peer_view = asdict(next_state)
-        peer_count = len(STATE)
-    print(f"[STATE] peers={peer_count} updated={event['peer_id']} value={json.dumps(peer_view, sort_keys=True)}")
+        snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+    print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
 
     # TODO: detect stale peers (check last_seen_ms against current time)
     # TODO: mirror role changes from peers
