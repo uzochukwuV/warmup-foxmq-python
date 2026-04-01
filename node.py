@@ -74,6 +74,12 @@ STALE_THRESHOLD_MS = 5000
 RECENT_HASH_CACHE_SIZE = 256
 RECENT_MESSAGE_HASHES = deque(maxlen=RECENT_HASH_CACHE_SIZE)
 RECENT_MESSAGE_HASHES_SET = set()
+ALLOWED_EVENT_TYPES = {"HELLO", "HEARTBEAT", "STATE"}
+MAX_LOG_PAYLOAD_CHARS = 220
+VALID_TOPIC_EVENT_TYPES = {
+    TOPIC_HELLO: {"HELLO"},
+    TOPIC_SWARM: {"HEARTBEAT", "STATE"},
+}
 
 
 def next_recv_order_index() -> int:
@@ -124,14 +130,20 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
     message_type = data.get("type")
     peer_id = data.get("peer_id")
     ts = data.get("ts")
-    if not isinstance(message_type, str) or not isinstance(peer_id, str) or not isinstance(ts, int):
+    if not isinstance(message_type, str) or not isinstance(peer_id, str):
+        print(f"[WARN] Missing/invalid type or peer_id on topic={topic}")
+        return None
+    if message_type not in ALLOWED_EVENT_TYPES:
+        print(f"[WARN] Unsupported message type={message_type} on topic={topic}")
+        return None
+    if not isinstance(ts, (int, float)):
         print(f"[WARN] Missing/invalid type, peer_id, or ts on topic={topic}")
         return None
 
     event = {
         "type": message_type,
         "peer_id": peer_id,
-        "ts": ts,
+        "ts": float(ts),
         "role": data.get("role"),
     }
     return event
