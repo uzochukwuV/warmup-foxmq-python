@@ -50,18 +50,19 @@ Implemented:
 Implemented:
 - Background heartbeat thread every 2 seconds
 - HEARTBEAT publish to `swarm/state`
-- `last_seen_ms` updated on accepted heartbeat events
+- `last_seen_ms` updated on any accepted signed event (`HELLO` or `HEARTBEAT`) because reduce/apply path is type-agnostic
 
 ### ISSUE 5 — Stale Node Detection
 **Status:** ✅ Implemented
 
 Implemented:
-- `STALE_THRESHOLD_MS = 5000`
+- Runtime uses `STALE_THRESHOLD_MS = 5000` (5 seconds)
 - periodic stale checker thread
 - status transitions `ready ↔ stale`
 
 Risk / gap:
 - stale detection uses local wall clock and is not event-sourced; in extreme clock skew, classifications can differ across nodes.
+- Documentation mismatch: README challenge text still describes stale after >10 seconds, so observed runtime behavior can differ from README expectations.
 
 ### ISSUE 6 — Deterministic Role Assignment
 **Status:** ✅ Implemented
@@ -72,15 +73,15 @@ Implemented:
 - Recomputed after stale detection / state updates
 
 ### ISSUE 7 — Message Integrity
-**Status:** ⚠️ Partially implemented
+**Status:** ✅ Implemented
 
 Implemented:
-- Envelope with payload + SHA256 signature
+- Envelope with payload + HMAC-SHA256 signature (shared secret)
 - Signature verification before processing
 - Invalid signatures rejected
 
 Gap:
-- Current scheme is an integrity checksum, **not authentication** (no shared secret/keyed MAC or asymmetric signature). Any party can recompute SHA256 over tampered payload.
+- Uses a shared secret model (symmetric authentication); no asymmetric identity yet.
 
 ### ISSUE 8 — Replay Protection
 **Status:** ✅ Implemented (baseline)
@@ -93,34 +94,33 @@ Gap:
 - Hash cache is process-local and bounded; long-window replays can bypass cache if timestamp still acceptable.
 
 ### ISSUE 9 — Proof Log (Auditability)
-**Status:** ❌ Not implemented
+**Status:** ✅ Implemented
 
-Missing:
-- append-only structured event log
-- state-transition log records
-- deterministic replay/reconstruction tooling
+Implemented:
+- append-only in-memory proof log list
+- incoming message audit records (`INCOMING_RAW` + rejection/drop outcomes)
+- state transition records with before/after snapshots
+
+Gap:
+- no persistence/export yet (log is process-memory only)
 
 ### ISSUE 10 — Fault Injection Testing
-**Status:** ⚠️ Partially implemented
+**Status:** ✅ Implemented (deterministic test harness)
 
 Implemented:
 - unit tests cover parsing, tamper rejection, timestamp ordering, replay cache, stale detection, role assignment
-
-Missing:
-- process kill tests
-- delayed network delivery simulation
-- multi-agent divergence tests
-- scenario tests for replay storms
+- 50-agent fault-injection stream test for replay, delayed messages, stale detection, and deterministic snapshot convergence
 
 ### ISSUE 11 — Task Coordination Layer
-**Status:** ❌ Not implemented
+**Status:** ✅ Implemented (core deterministic scheduler)
 
-Missing:
-- task schema models
-- eligibility filter
-- deterministic assignment (FAST/SECURE/RECOVERABLE)
-- task lifecycle + result verification
-- reassignment logic for stale assignees
+Implemented:
+- strict task schema parser (`TaskSpec` + `TaskRequirements`)
+- deterministic eligibility filter (`ready` + role)
+- deterministic assignment rules for FAST/SECURE/RECOVERABLE
+- lifecycle states (`CREATED → ASSIGNED → EXECUTING → COMPLETED`)
+- SECURE result-matching enforcement
+- RECOVERABLE reassignment on stale assignee
 
 ### ISSUE 12 — End-to-End Scenario
 **Status:** ❌ Not implemented
@@ -133,11 +133,11 @@ Missing:
 
 ## Priority bugs to fix now (current stage)
 
-1. **Security semantics bug (Issue 7):** SHA256(payload) is not authenticating sender identity.
-2. **Potential nondeterminism source (Issue 5):** stale classification depends on local wall clock, not consensus events.
-3. **Reconnect/thread lifecycle bug risk:** `on_connect` starts heartbeat/stale threads each reconnect; repeated reconnects can create duplicate background loops.
-4. **Timestamp unit ambiguity:** code accepts seconds or ms; mixed publishers may cause coarse-order edge effects.
-5. **Replay cache memory/logic edge:** bounded cache can miss repeated old duplicates over long runtimes.
+1. **Potential nondeterminism source (Issue 5):** stale classification depends on local wall clock, not consensus events.
+2. **Reconnect/thread lifecycle bug risk:** `on_connect` starts heartbeat/stale threads each reconnect; repeated reconnects can create duplicate background loops.
+3. **Timestamp unit ambiguity:** code accepts seconds or ms; mixed publishers may cause coarse-order edge effects.
+4. **Replay cache memory/logic edge:** bounded cache can miss repeated old duplicates over long runtimes.
+5. **Task persistence gap:** in-memory task/proof records are not persisted across process restarts.
 
 ---
 
@@ -166,4 +166,3 @@ Missing:
 2. Expand **Issue 10** with multi-process fault injection tests.
 3. Implement **Issue 11** task coordination primitives in pure deterministic reducers.
 4. Build **Issue 12** scenario harness and CI gate.
-

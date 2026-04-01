@@ -26,12 +26,14 @@ Usage:
 
 import argparse
 import hashlib
+import hmac
 import json
+import os
 import time
 import threading
 from collections import deque
 from dataclasses import dataclass, asdict
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 import paho.mqtt.client as mqtt
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,22 @@ class PeerState:
     status: str
 
 
+@dataclass
+class TaskRequirements:
+    min_agents: int
+    required_role: str
+    max_latency_ms: int
+    redundancy: int
+
+
+@dataclass
+class TaskSpec:
+    task_id: str
+    type: str
+    requirements: TaskRequirements
+    payload: Dict[str, Any]
+
+
 STATE: Dict[str, PeerState] = {}
 STATE_LOCK = threading.Lock()
 
@@ -74,12 +92,20 @@ STALE_THRESHOLD_MS = 5000
 RECENT_HASH_CACHE_SIZE = 256
 RECENT_MESSAGE_HASHES = deque(maxlen=RECENT_HASH_CACHE_SIZE)
 RECENT_MESSAGE_HASHES_SET = set()
-ALLOWED_EVENT_TYPES = {"HELLO", "HEARTBEAT", "STATE"}
-MAX_LOG_PAYLOAD_CHARS = 220
-VALID_TOPIC_EVENT_TYPES = {
-    TOPIC_HELLO: {"HELLO"},
-    TOPIC_SWARM: {"HEARTBEAT", "STATE"},
-}
+PROOF_LOG = []
+PROOF_LOG_LOCK = threading.Lock()
+SIGNING_SECRET = os.environ.get("SWARM_SIGNING_SECRET", "vertex-swarm-shared-secret")
+TASKS: Dict[str, dict] = {}
+TASKS_LOCK = threading.Lock()
+
+TASK_CREATED = "CREATED"
+TASK_ASSIGNED = "ASSIGNED"
+TASK_EXECUTING = "EXECUTING"
+TASK_COMPLETED = "COMPLETED"
+
+TASK_FAST = "FAST_TASK"
+TASK_SECURE = "SECURE_TASK"
+TASK_RECOVERABLE = "RECOVERABLE_TASK"
 
 
 def next_recv_order_index() -> int:
@@ -98,7 +124,12 @@ def sha256_hex(text: str) -> str:
 
 
 def sign_payload(payload: dict) -> str:
-    return sha256_hex(canonical_json(payload))
+    mac = hmac.new(
+        SIGNING_SECRET.encode("utf-8"),
+        canonical_json(payload).encode("utf-8"),
+        hashlib.sha256,
+    )
+    return mac.hexdigest()
 
 
 def verify_envelope(envelope: dict) -> bool:
@@ -130,13 +161,14 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
     message_type = data.get("type")
     peer_id = data.get("peer_id")
     ts = data.get("ts")
-    if not isinstance(message_type, str) or not isinstance(peer_id, str):
-        print(f"[WARN] Missing/invalid type or peer_id on topic={topic}")
+    if not isinstance(message_type, str):
+        print(f"[WARN] Missing/invalid type, peer_id, or ts on topic={topic}")
         return None
-    if message_type not in ALLOWED_EVENT_TYPES:
-        print(f"[WARN] Unsupported message type={message_type} on topic={topic}")
-        return None
-    if not isinstance(ts, (int, float)):
+
+    if message_type == "TASK_CREATE":
+        peer_id = peer_id if isinstance(peer_id, str) else "system"
+        ts = ts if isinstance(ts, int) else int(time.time())
+    elif not isinstance(peer_id, str) or not isinstance(ts, int):
         print(f"[WARN] Missing/invalid type, peer_id, or ts on topic={topic}")
         return None
 
@@ -145,8 +177,167 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
         "peer_id": peer_id,
         "ts": float(ts),
         "role": data.get("role"),
+        "task": data.get("task"),
+        "task_id": data.get("task_id"),
+        "result": data.get("result"),
     }
     return event
+
+
+def append_proof_log(event_type: str, peer_id: str, ts: int, details: Optional[dict] = None) -> None:
+    """Append-only audit trail for incoming events and state transitions."""
+    details = details or {}
+    event_body = {
+        "type": event_type,
+        "peer_id": peer_id,
+        "ts": ts,
+        "details": details,
+    }
+    event_id = sha256_hex(canonical_json(event_body))
+    record = {
+        "event_id": event_id,
+        **event_body,
+    }
+    with PROOF_LOG_LOCK:
+        PROOF_LOG.append(record)
+
+
+def parse_task_spec(task_payload: dict) -> Optional[TaskSpec]:
+    """Validate and normalize task schema."""
+    if not isinstance(task_payload, dict):
+        return None
+    task_id = task_payload.get("task_id")
+    task_type = task_payload.get("type")
+    payload = task_payload.get("payload", {})
+    requirements = task_payload.get("requirements", {})
+    if not isinstance(task_id, str) or task_type not in {TASK_FAST, TASK_SECURE, TASK_RECOVERABLE}:
+        return None
+    if not isinstance(requirements, dict):
+        return None
+    try:
+        req = TaskRequirements(
+            min_agents=int(requirements.get("min_agents", 1)),
+            required_role=str(requirements.get("required_role", "any")),
+            max_latency_ms=int(requirements.get("max_latency_ms", 1000)),
+            redundancy=int(requirements.get("redundancy", 1)),
+        )
+    except (TypeError, ValueError):
+        return None
+    if req.required_role not in {"worker", "leader", "any"}:
+        return None
+    if task_type == TASK_SECURE and req.redundancy < 2:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return TaskSpec(task_id=task_id, type=task_type, requirements=req, payload=payload)
+
+
+def eligible_agents(state: Dict[str, PeerState], required_role: str) -> List[str]:
+    peers = []
+    for peer_id, peer in state.items():
+        if peer.status != "ready":
+            continue
+        if required_role != "any" and peer.role != required_role:
+            continue
+        peers.append(peer_id)
+    return sorted(peers)
+
+
+def assign_task(task: TaskSpec, state: Dict[str, PeerState], previous_assignees: Optional[List[str]] = None) -> List[str]:
+    """Deterministic assignment for FAST/SECURE/RECOVERABLE tasks."""
+    candidates = eligible_agents(state, task.requirements.required_role)
+    if len(candidates) < task.requirements.min_agents:
+        return []
+
+    if task.type == TASK_FAST:
+        return candidates[:1]
+    if task.type == TASK_SECURE:
+        return candidates[: task.requirements.redundancy]
+    if task.type == TASK_RECOVERABLE:
+        if not previous_assignees:
+            return candidates[:1]
+        for candidate in candidates:
+            if candidate not in previous_assignees:
+                return [candidate]
+        return candidates[:1]
+    return []
+
+
+def create_task_record(task: TaskSpec, state: Dict[str, PeerState]) -> dict:
+    assignees = assign_task(task, state)
+    lifecycle = TASK_ASSIGNED if assignees else TASK_CREATED
+    return {
+        "task_id": task.task_id,
+        "type": task.type,
+        "requirements": asdict(task.requirements),
+        "payload": task.payload,
+        "assignees": assignees,
+        "state": lifecycle,
+        "results": {},
+    }
+
+
+def handle_task_create(task_payload: dict, state: Dict[str, PeerState]) -> Optional[dict]:
+    task = parse_task_spec(task_payload)
+    if task is None:
+        return None
+    record = create_task_record(task, state)
+    with TASKS_LOCK:
+        TASKS[task.task_id] = record
+    append_proof_log("TASK_CREATE", "system", int(time.time()), {"task_id": task.task_id, "assignees": record["assignees"]})
+    return record
+
+
+def handle_task_result(task_result: dict) -> bool:
+    """Accept only assigned agent results; enforce SECURE_TASK matching outputs."""
+    task_id = task_result.get("task_id")
+    peer_id = task_result.get("peer_id")
+    result = task_result.get("result")
+    ts = task_result.get("ts")
+    if not isinstance(task_id, str) or not isinstance(peer_id, str) or not isinstance(ts, int):
+        return False
+    with TASKS_LOCK:
+        task = TASKS.get(task_id)
+        if task is None or peer_id not in task["assignees"]:
+            return False
+        task["results"][peer_id] = result
+        task["state"] = TASK_EXECUTING
+        if task["type"] == TASK_SECURE:
+            expected = len(task["assignees"])
+            if len(task["results"]) >= expected:
+                unique_results = {canonical_json({"result": value}) for value in task["results"].values()}
+                if len(unique_results) == 1:
+                    task["state"] = TASK_COMPLETED
+                else:
+                    task["state"] = TASK_ASSIGNED
+                    task["results"] = {}
+                    return False
+        else:
+            task["state"] = TASK_COMPLETED
+    append_proof_log("TASK_RESULT", peer_id, ts, {"task_id": task_id})
+    return True
+
+
+def rebalance_recoverable_tasks(state: Dict[str, PeerState]) -> None:
+    """Reassign recoverable tasks if current assignee becomes non-ready."""
+    with TASKS_LOCK:
+        for task in TASKS.values():
+            if task["type"] != TASK_RECOVERABLE or task["state"] == TASK_COMPLETED:
+                continue
+            assignees = task.get("assignees", [])
+            current = assignees[0] if assignees else None
+            if current and state.get(current) and state[current].status == "ready":
+                continue
+            task_spec = TaskSpec(
+                task_id=task["task_id"],
+                type=task["type"],
+                requirements=TaskRequirements(**task["requirements"]),
+                payload=task["payload"],
+            )
+            new_assignees = assign_task(task_spec, state, previous_assignees=assignees)
+            task["assignees"] = new_assignees
+            task["state"] = TASK_ASSIGNED if new_assignees else TASK_CREATED
+            task["results"] = {}
 
 
 def to_millis(ts: int) -> int:
@@ -243,6 +434,7 @@ def stale_monitor_loop() -> None:
     while True:
         with STATE_LOCK:
             changed = apply_stale_detection(STATE, now_ms())
+            rebalance_recoverable_tasks(STATE)
             if changed:
                 snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
                 print(f"[STALE] {json.dumps(snapshot, sort_keys=True)}")
@@ -285,15 +477,61 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     recv_order_index = next_recv_order_index()
 
     print(f"[RECV] idx={recv_order_index} topic={topic} payload={payload}")
+    append_proof_log(
+        event_type="INCOMING_RAW",
+        peer_id="unknown",
+        ts=int(time.time()),
+        details={"topic": topic, "recv_idx": recv_order_index, "payload": payload},
+    )
 
     event = parse_message(topic, payload)
     if event is None:
+        append_proof_log(
+            event_type="INCOMING_REJECTED",
+            peer_id="unknown",
+            ts=int(time.time()),
+            details={"topic": topic, "recv_idx": recv_order_index},
+        )
         return
 
     with STATE_LOCK:
         if seen_recently(event):
             print(f"[DROP] replay peer_id={event['peer_id']} ts={event['ts']}")
+            append_proof_log(
+                event_type="INCOMING_REPLAY_DROP",
+                peer_id=event["peer_id"],
+                ts=event["ts"],
+                details={"topic": topic, "recv_idx": recv_order_index},
+            )
             return
+        if event["type"] == "TASK_CREATE":
+            created = handle_task_create(event.get("task"), STATE)
+            if created is None:
+                append_proof_log(
+                    event_type="TASK_CREATE_REJECTED",
+                    peer_id=event["peer_id"],
+                    ts=event["ts"],
+                    details={"topic": topic, "recv_idx": recv_order_index},
+                )
+            snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+            print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
+            return
+        if event["type"] == "TASK_RESULT":
+            accepted = handle_task_result(
+                {
+                    "task_id": event.get("task_id"),
+                    "peer_id": event["peer_id"],
+                    "result": event.get("result"),
+                    "ts": event["ts"],
+                }
+            )
+            if not accepted:
+                append_proof_log(
+                    event_type="TASK_RESULT_REJECTED",
+                    peer_id=event["peer_id"],
+                    ts=event["ts"],
+                    details={"task_id": event.get("task_id")},
+                )
         prev = STATE.get(event["peer_id"])
         next_state = reduce_state(prev, event)
         if next_state is None:
@@ -301,9 +539,23 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
                 f"[DROP] peer_id={event['peer_id']} incoming_ts={event['ts']} "
                 f"current_last_seen_ms={prev.last_seen_ms if prev else 0}"
             )
+            append_proof_log(
+                event_type="INCOMING_DELAYED_DROP",
+                peer_id=event["peer_id"],
+                ts=event["ts"],
+                details={"topic": topic, "recv_idx": recv_order_index},
+            )
             return
+        previous_snapshot = asdict(prev) if prev else None
         STATE[event["peer_id"]] = next_state
+        append_proof_log(
+            event_type="STATE_TRANSITION",
+            peer_id=event["peer_id"],
+            ts=event["ts"],
+            details={"previous": previous_snapshot, "next": asdict(next_state), "source_type": event["type"]},
+        )
         apply_stale_detection(STATE, now_ms())
+        rebalance_recoverable_tasks(STATE)
         snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
     print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
 
