@@ -28,6 +28,8 @@ import argparse
 import json
 import time
 import threading
+from dataclasses import dataclass, asdict
+from typing import Dict, Optional
 import paho.mqtt.client as mqtt
 
 # ---------------------------------------------------------------------------
@@ -51,6 +53,88 @@ TOPIC_HELLO = "swarm/hello"      # initial handshake topic
 # the SAME consensus-ordered sequence — so your local state will always match
 # every other agent's local state if your update logic is deterministic.
 # ---------------------------------------------------------------------------
+@dataclass
+class PeerState:
+    peer_id: str
+    last_seen_ms: int
+    role: str
+    status: str
+
+
+STATE: Dict[str, PeerState] = {}
+STATE_LOCK = threading.Lock()
+
+RECV_ORDER_INDEX = 0
+RECV_ORDER_LOCK = threading.Lock()
+
+
+def next_recv_order_index() -> int:
+    global RECV_ORDER_INDEX
+    with RECV_ORDER_LOCK:
+        RECV_ORDER_INDEX += 1
+        return RECV_ORDER_INDEX
+
+
+def parse_message(topic: str, payload: str) -> Optional[dict]:
+    """Parse inbound JSON and normalize to a structured event dict."""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        print(f"[WARN] Ignoring non-JSON message on topic={topic}")
+        return None
+
+    if not isinstance(data, dict):
+        print(f"[WARN] Ignoring non-object message on topic={topic}")
+        return None
+
+    message_type = data.get("type")
+    peer_id = data.get("peer_id")
+    if not isinstance(message_type, str) or not isinstance(peer_id, str):
+        print(f"[WARN] Missing/invalid type or peer_id on topic={topic}")
+        return None
+
+    return {
+        "type": message_type,
+        "peer_id": peer_id,
+        "ts": data.get("ts"),
+        "last_seen_ms": data.get("last_seen_ms"),
+        "role": data.get("role"),
+        "status": data.get("status"),
+    }
+
+
+def reduce_state(previous: Optional[PeerState], event: dict) -> PeerState:
+    """
+    Deterministic state transition:
+      - purely computed from previous state + input event
+      - no randomness / no wall-clock dependency
+    """
+    peer_id = event["peer_id"]
+    baseline = previous or PeerState(
+        peer_id=peer_id,
+        last_seen_ms=0,
+        role="worker",
+        status="ready",
+    )
+
+    event_last_seen_ms = event.get("last_seen_ms")
+    if not isinstance(event_last_seen_ms, int):
+        ts = event.get("ts")
+        if isinstance(ts, int):
+            # HELLO uses seconds in Issue 1, normalize to ms for replicated state.
+            event_last_seen_ms = ts * 1000
+        else:
+            event_last_seen_ms = baseline.last_seen_ms
+
+    role = event.get("role") if isinstance(event.get("role"), str) else baseline.role
+    status = event.get("status") if isinstance(event.get("status"), str) else baseline.status
+
+    return PeerState(
+        peer_id=peer_id,
+        last_seen_ms=event_last_seen_ms,
+        role=role,
+        status=status,
+    )
 
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
@@ -63,7 +147,12 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
         client.subscribe(TOPIC_HELLO, qos=1)
         print(f"[SUBSCRIBED] {TOPIC_SWARM}, {TOPIC_HELLO}")
 
-        # TODO: send a HELLO handshake message here
+        hello = {
+            "type": "HELLO",
+            "peer_id": userdata["agent_id"],
+            "ts": int(time.time()),
+        }
+        publish_json(client, TOPIC_HELLO, hello)
         # TODO: start a background heartbeat thread
 
     else:
@@ -72,13 +161,22 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
 
 def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     """Called for every consensus-ordered message that arrives from FoxMQ."""
-    topic   = message.topic
+    topic = message.topic
     payload = message.payload.decode("utf-8")
+    recv_order_index = next_recv_order_index()
 
-    print(f"[RECV] topic={topic}  payload={payload}")
+    print(f"[RECV] idx={recv_order_index} topic={topic} payload={payload}")
 
-    # TODO: parse the JSON payload
-    # TODO: update your local shared state
+    event = parse_message(topic, payload)
+    if event is None:
+        return
+
+    with STATE_LOCK:
+        prev = STATE.get(event["peer_id"])
+        STATE[event["peer_id"]] = reduce_state(prev, event)
+        snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+    print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
+
     # TODO: detect stale peers (check last_seen_ms against current time)
     # TODO: mirror role changes from peers
 
