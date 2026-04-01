@@ -33,6 +33,7 @@ import time
 import threading
 from collections import deque
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import paho.mqtt.client as mqtt
 
@@ -97,6 +98,13 @@ PROOF_LOG_LOCK = threading.Lock()
 SIGNING_SECRET = os.environ.get("SWARM_SIGNING_SECRET", "vertex-swarm-shared-secret")
 TASKS: Dict[str, dict] = {}
 TASKS_LOCK = threading.Lock()
+LOGICAL_TIME_MS = 0
+LOGICAL_TIME_LOCK = threading.Lock()
+HEARTBEAT_THREAD: Optional[threading.Thread] = None
+STALE_THREAD: Optional[threading.Thread] = None
+
+PROOF_LOG_PATH_DEFAULT = os.environ.get("SWARM_PROOF_LOG_PATH")
+TASKS_SNAPSHOT_PATH_DEFAULT = os.environ.get("SWARM_TASKS_SNAPSHOT_PATH")
 
 TASK_CREATED = "CREATED"
 TASK_ASSIGNED = "ASSIGNED"
@@ -175,13 +183,34 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
     event = {
         "type": message_type,
         "peer_id": peer_id,
-        "ts": float(ts),
+        "ts": int(ts),
         "role": data.get("role"),
         "task": data.get("task"),
         "task_id": data.get("task_id"),
         "result": data.get("result"),
     }
     return event
+
+
+def persist_jsonl_record(path: Optional[str], record: dict) -> None:
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True))
+        handle.write("\n")
+
+
+def persist_tasks_snapshot() -> None:
+    snapshot_path = os.environ.get("SWARM_TASKS_SNAPSHOT_PATH", TASKS_SNAPSHOT_PATH_DEFAULT or "")
+    if not snapshot_path:
+        return
+    target = Path(snapshot_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with TASKS_LOCK:
+        snapshot = json.dumps(TASKS, sort_keys=True)
+    target.write_text(snapshot, encoding="utf-8")
 
 
 def append_proof_log(event_type: str, peer_id: str, ts: int, details: Optional[dict] = None) -> None:
@@ -200,6 +229,8 @@ def append_proof_log(event_type: str, peer_id: str, ts: int, details: Optional[d
     }
     with PROOF_LOG_LOCK:
         PROOF_LOG.append(record)
+    proof_log_path = os.environ.get("SWARM_PROOF_LOG_PATH", PROOF_LOG_PATH_DEFAULT or "")
+    persist_jsonl_record(proof_log_path, record)
 
 
 def parse_task_spec(task_payload: dict) -> Optional[TaskSpec]:
@@ -284,6 +315,7 @@ def handle_task_create(task_payload: dict, state: Dict[str, PeerState], event_ts
     record = create_task_record(task, state)
     with TASKS_LOCK:
         TASKS[task.task_id] = record
+    persist_tasks_snapshot()
     ts = event_ts if isinstance(event_ts, int) else int(time.time())
     append_proof_log("TASK_CREATE", "system", ts, {"task_id": task.task_id, "assignees": record["assignees"]})
     return record
@@ -316,6 +348,7 @@ def handle_task_result(task_result: dict) -> bool:
         else:
             task["state"] = TASK_COMPLETED
     append_proof_log("TASK_RESULT", peer_id, ts, {"task_id": task_id})
+    persist_tasks_snapshot()
     return True
 
 
@@ -339,9 +372,11 @@ def rebalance_recoverable_tasks(state: Dict[str, PeerState]) -> None:
             task["assignees"] = new_assignees
             task["state"] = TASK_ASSIGNED if new_assignees else TASK_CREATED
             task["results"] = {}
+    persist_tasks_snapshot()
 
 
 def reset_runtime_state() -> None:
+    global LOGICAL_TIME_MS
     with STATE_LOCK:
         STATE.clear()
     with TASKS_LOCK:
@@ -350,6 +385,22 @@ def reset_runtime_state() -> None:
         PROOF_LOG.clear()
     RECENT_MESSAGE_HASHES.clear()
     RECENT_MESSAGE_HASHES_SET.clear()
+    with LOGICAL_TIME_LOCK:
+        LOGICAL_TIME_MS = 0
+
+
+def advance_logical_time(ts: int) -> int:
+    incoming_ms = to_millis(ts)
+    global LOGICAL_TIME_MS
+    with LOGICAL_TIME_LOCK:
+        if incoming_ms > LOGICAL_TIME_MS:
+            LOGICAL_TIME_MS = incoming_ms
+        return LOGICAL_TIME_MS
+
+
+def get_logical_time_ms() -> int:
+    with LOGICAL_TIME_LOCK:
+        return LOGICAL_TIME_MS
 
 
 def bootstrap_agents(agent_ids: List[str], base_ts_ms: int = 10_000) -> Dict[str, PeerState]:
@@ -518,17 +569,22 @@ def apply_stale_detection(state: Dict[str, PeerState], now_ms_value: int) -> boo
 def stale_monitor_loop() -> None:
     """Background stale checker."""
     while True:
+        logical_now = get_logical_time_ms()
+        if logical_now <= 0:
+            time.sleep(STALE_CHECK_INTERVAL_SEC)
+            continue
         with STATE_LOCK:
-            changed = apply_stale_detection(STATE, now_ms())
-            rebalance_recoverable_tasks(STATE)
-            if changed:
-                snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
-                print(f"[STALE] {json.dumps(snapshot, sort_keys=True)}")
+            changed = apply_stale_detection(STATE, logical_now)
+            state_snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+        rebalance_recoverable_tasks(state_snapshot)
+        if changed:
+            print(f"[STALE] {json.dumps(state_snapshot, sort_keys=True)}")
         time.sleep(STALE_CHECK_INTERVAL_SEC)
 
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
     """Called when the client connects to the FoxMQ broker."""
+    global HEARTBEAT_THREAD, STALE_THREAD
     if reason_code == 0:
         print(f"[CONNECTED] broker={userdata['host']}:{userdata['port']}")
 
@@ -543,14 +599,16 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
             "ts": int(time.time()),
         }
         publish_json(client, TOPIC_HELLO, hello)
-        heartbeat_thread = threading.Thread(
-            target=heartbeat_loop,
-            args=(client, userdata["agent_id"]),
-            daemon=True,
-        )
-        heartbeat_thread.start()
-        stale_thread = threading.Thread(target=stale_monitor_loop, daemon=True)
-        stale_thread.start()
+        if HEARTBEAT_THREAD is None or not HEARTBEAT_THREAD.is_alive():
+            HEARTBEAT_THREAD = threading.Thread(
+                target=heartbeat_loop,
+                args=(client, userdata["agent_id"]),
+                daemon=True,
+            )
+            HEARTBEAT_THREAD.start()
+        if STALE_THREAD is None or not STALE_THREAD.is_alive():
+            STALE_THREAD = threading.Thread(target=stale_monitor_loop, daemon=True)
+            STALE_THREAD.start()
 
     else:
         print(f"[ERROR] Connection failed: {reason_code}")
@@ -580,44 +638,51 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
         )
         return
 
+    if seen_recently(event):
+        print(f"[DROP] replay peer_id={event['peer_id']} ts={event['ts']}")
+        append_proof_log(
+            event_type="INCOMING_REPLAY_DROP",
+            peer_id=event["peer_id"],
+            ts=event["ts"],
+            details={"topic": topic, "recv_idx": recv_order_index},
+        )
+        return
+
+    advance_logical_time(event["ts"])
+
     with STATE_LOCK:
-        if seen_recently(event):
-            print(f"[DROP] replay peer_id={event['peer_id']} ts={event['ts']}")
+        state_snapshot = {k: v for k, v in STATE.items()}
+
+    if event["type"] == "TASK_CREATE":
+        created = handle_task_create(event.get("task"), state_snapshot, event_ts=event.get("ts"))
+        if created is None:
             append_proof_log(
-                event_type="INCOMING_REPLAY_DROP",
+                event_type="TASK_CREATE_REJECTED",
                 peer_id=event["peer_id"],
                 ts=event["ts"],
                 details={"topic": topic, "recv_idx": recv_order_index},
             )
-            return
-        if event["type"] == "TASK_CREATE":
-            created = handle_task_create(event.get("task"), STATE, event_ts=event.get("ts"))
-            if created is None:
-                append_proof_log(
-                    event_type="TASK_CREATE_REJECTED",
-                    peer_id=event["peer_id"],
-                    ts=event["ts"],
-                    details={"topic": topic, "recv_idx": recv_order_index},
-                )
-            snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
-            print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
-            return
-        if event["type"] == "TASK_RESULT":
-            accepted = handle_task_result(
-                {
-                    "task_id": event.get("task_id"),
-                    "peer_id": event["peer_id"],
-                    "result": event.get("result"),
-                    "ts": event["ts"],
-                }
+        print(f"[STATE] {json.dumps({k: asdict(v) for k, v in sorted(state_snapshot.items())}, sort_keys=True)}")
+        return
+
+    if event["type"] == "TASK_RESULT":
+        accepted = handle_task_result(
+            {
+                "task_id": event.get("task_id"),
+                "peer_id": event["peer_id"],
+                "result": event.get("result"),
+                "ts": event["ts"],
+            }
+        )
+        if not accepted:
+            append_proof_log(
+                event_type="TASK_RESULT_REJECTED",
+                peer_id=event["peer_id"],
+                ts=event["ts"],
+                details={"task_id": event.get("task_id")},
             )
-            if not accepted:
-                append_proof_log(
-                    event_type="TASK_RESULT_REJECTED",
-                    peer_id=event["peer_id"],
-                    ts=event["ts"],
-                    details={"task_id": event.get("task_id")},
-                )
+
+    with STATE_LOCK:
         prev = STATE.get(event["peer_id"])
         next_state = reduce_state(prev, event)
         if next_state is None:
@@ -640,10 +705,10 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
             ts=event["ts"],
             details={"previous": previous_snapshot, "next": asdict(next_state), "source_type": event["type"]},
         )
-        apply_stale_detection(STATE, now_ms())
-        rebalance_recoverable_tasks(STATE)
-        snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
-    print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
+        apply_stale_detection(STATE, get_logical_time_ms())
+        live_state_snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+    rebalance_recoverable_tasks({k: PeerState(**v) for k, v in live_state_snapshot.items()})
+    print(f"[STATE] {json.dumps(live_state_snapshot, sort_keys=True)}")
 
     # TODO: detect stale peers (check last_seen_ms against current time)
     # TODO: mirror role changes from peers

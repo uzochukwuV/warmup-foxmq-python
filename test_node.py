@@ -1,5 +1,7 @@
 import unittest
 import json
+import os
+import tempfile
 from copy import deepcopy
 
 from node import (
@@ -27,6 +29,9 @@ from node import (
     TASK_RECOVERABLE,
     TASK_SECURE,
     run_end_to_end_scenario,
+    advance_logical_time,
+    get_logical_time_ms,
+    persist_tasks_snapshot,
 )
 
 
@@ -47,6 +52,7 @@ class NodeDeterminismTests(unittest.TestCase):
         self.assertEqual(parsed["type"], "HEARTBEAT")
         self.assertEqual(parsed["peer_id"], "a")
         self.assertEqual(parsed["ts"], 1710000000)
+        self.assertIsInstance(parsed["ts"], int)
 
     def test_tampered_messages_are_rejected(self):
         payload = {"type": "HEARTBEAT", "peer_id": "a", "ts": 1710000000}
@@ -231,6 +237,29 @@ class NodeDeterminismTests(unittest.TestCase):
             report_a["recoverable_original_assignee"],
             report_a["recoverable_reassigned_assignee"],
         )
+
+    def test_logical_time_is_monotonic(self):
+        self.assertEqual(advance_logical_time(10), 10000)
+        self.assertEqual(advance_logical_time(9), 10000)
+        self.assertEqual(get_logical_time_ms(), 10000)
+
+    def test_task_snapshot_persists_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snapshot_path = os.path.join(tmpdir, "tasks.json")
+            prior = os.environ.get("SWARM_TASKS_SNAPSHOT_PATH")
+            os.environ["SWARM_TASKS_SNAPSHOT_PATH"] = snapshot_path
+            try:
+                TASKS["T_TMP"] = {"task_id": "T_TMP", "state": "ASSIGNED", "assignees": [], "results": {}}
+                persist_tasks_snapshot()
+                self.assertTrue(os.path.exists(snapshot_path))
+                with open(snapshot_path, "r", encoding="utf-8") as handle:
+                    on_disk = json.loads(handle.read())
+                self.assertIn("T_TMP", on_disk)
+            finally:
+                if prior is None:
+                    os.environ.pop("SWARM_TASKS_SNAPSHOT_PATH", None)
+                else:
+                    os.environ["SWARM_TASKS_SNAPSHOT_PATH"] = prior
 
 
 if __name__ == "__main__":
