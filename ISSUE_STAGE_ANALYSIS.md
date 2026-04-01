@@ -1,170 +1,157 @@
-# Stateful Swarm Agent — Current Stage Analysis
+# Stateful Swarm Agent — Current Stage Analysis (Code-Verified)
 
-## Executive summary
+## Overall Stage
 
-The current codebase has completed most of Issues **1–8** at a functional baseline level, but lacks Issues **9–12** (proof-log, fault-injection suite, task coordination layer, and end-to-end scenario orchestration).
+**Current stage: late prototype / pre-production hardening.**
 
-Current maturity is best described as:
-
-- **Stage:** Core swarm replication runtime (pre-coordination)
-- **Readiness:** solid prototype for deterministic state sync, liveness, and basic security validation
-- **Main gap:** no deterministic task scheduler/executor layer yet
+From direct code inspection, the project already implements the full Issue 1–12 surface area in one process (`node.py`) plus deterministic/unit scenario tests (`test_node.py`). The highest remaining work is **robustness hardening and operational correctness**, not missing core feature scaffolding.
 
 ---
 
-## Issue-by-issue status
+## Issue-by-Issue Assessment
 
-### ISSUE 1 — Base Connectivity & Deterministic Messaging
-**Status:** ✅ Mostly implemented
+### Issue 1 — Base connectivity & deterministic messaging
+**Status:** Implemented.
 
-Implemented:
-- MQTT v5 client + credentials + connect lifecycle
-- Subscribe to `swarm/state` and `swarm/hello`
-- Publish HELLO with `{type, peer_id, ts}`
-- Receive logging includes topic, payload, receive index
+- MQTT v5 client with credential login is in place.
+- Subscriptions include both `swarm/state` and `swarm/hello`.
+- HELLO payload publishes on connect.
+- Receive order index and raw payload/topic logging exists.
 
-Risk / gap:
-- "No duplicate or missing messages" is only partially addressed at app layer (replay cache), but no explicit delivery audit counters per topic/peer.
+### Issue 2 — Replicated state model
+**Status:** Implemented.
 
-### ISSUE 2 — Replicated State Model
-**Status:** ✅ Implemented
+- `PeerState` schema is present.
+- Global `STATE` map with `STATE_LOCK` exists.
+- Incoming events are parsed and reduced to deterministic state transitions.
 
-Implemented:
-- `PeerState` dataclass with required schema fields
-- `STATE` + `STATE_LOCK`
-- Message parsing to structured event
-- Deterministic state transition function (`reduce_state`)
+### Issue 3 — Deterministic update engine
+**Status:** Implemented.
 
-### ISSUE 3 — Deterministic Update Engine
-**Status:** ✅ Implemented
+- Update gate `incoming_last_seen_ms < baseline.last_seen_ms => drop` is enforced.
+- Timestamp normalization (`to_millis`) handles second/ms inputs.
+- Replay suppression cache exists.
 
-Implemented:
-- Rule: apply update only when incoming timestamp is >= current
-- Out-of-order drop behavior
-- Input normalization (`to_millis`) for seconds/ms
-- Deterministic handling of duplicates via replay cache
+### Issue 4 — Heartbeat protocol
+**Status:** Implemented (functional, with reconnect caveat).
 
-### ISSUE 4 — Heartbeat Protocol
-**Status:** ✅ Implemented
+- 2s heartbeat background loop publishes to `swarm/state`.
+- Accepted events refresh `last_seen_ms`.
 
-Implemented:
-- Background heartbeat thread every 2 seconds
-- HEARTBEAT publish to `swarm/state`
-- `last_seen_ms` updated on any accepted signed event (`HELLO` or `HEARTBEAT`) because reduce/apply path is type-agnostic
+### Issue 5 — Stale node detection
+**Status:** Implemented (with determinism caveat).
 
-### ISSUE 5 — Stale Node Detection
-**Status:** ✅ Implemented
+- Threshold is configured at 5000ms.
+- Periodic stale monitor marks peers `ready`/`stale`.
 
-Implemented:
-- Runtime uses `STALE_THRESHOLD_MS = 5000` (5 seconds)
-- periodic stale checker thread
-- status transitions `ready ↔ stale`
+### Issue 6 — Deterministic role assignment
+**Status:** Implemented.
 
-Risk / gap:
-- stale detection uses local wall clock and is not event-sourced; in extreme clock skew, classifications can differ across nodes.
-- Documentation mismatch: README challenge text still describes stale after >10 seconds, so observed runtime behavior can differ from README expectations.
+- Ready peers sorted lexicographically.
+- First peer is leader, others workers.
+- Recomputed after updates/stale detection.
 
-### ISSUE 6 — Deterministic Role Assignment
-**Status:** ✅ Implemented
+### Issue 7 — Message integrity
+**Status:** Implemented with stronger-than-spec authentication.
 
-Implemented:
-- Lexicographic ready-peer sort
-- First ready peer is `leader`, others `worker`
-- Recomputed after stale detection / state updates
+- Envelope structure exists.
+- Signature is **HMAC-SHA256** with shared secret (`SWARM_SIGNING_SECRET`), which is stronger than plain SHA256(payload).
+- Invalid signatures are rejected before state mutation.
 
-### ISSUE 7 — Message Integrity
-**Status:** ✅ Implemented
+### Issue 8 — Replay protection
+**Status:** Implemented.
 
-Implemented:
-- Envelope with payload + HMAC-SHA256 signature (shared secret)
-- Signature verification before processing
-- Invalid signatures rejected
+- Old timestamps are rejected in reducer.
+- Recent-message hash cache blocks immediate duplicates.
 
-Gap:
-- Uses a shared secret model (symmetric authentication); no asymmetric identity yet.
+### Issue 9 — Proof log
+**Status:** Implemented in memory.
 
-### ISSUE 8 — Replay Protection
-**Status:** ✅ Implemented (baseline)
+- Append-only `PROOF_LOG` with event IDs and transition metadata.
+- Includes rejected/drop events and state transitions.
 
-Implemented:
-- Reject old timestamps (`incoming.ts < current.last_seen_ms`)
-- Recent hash cache for duplicate suppression
+### Issue 10 — Fault injection testing
+**Status:** Implemented at deterministic test-harness level.
 
-Gap:
-- Hash cache is process-local and bounded; long-window replays can bypass cache if timestamp still acceptable.
+- Test suite covers replay, tamper, delayed messages, stale detection, and convergence across simulated peers.
 
-### ISSUE 9 — Proof Log (Auditability)
-**Status:** ✅ Implemented
+### Issue 11 — Task coordination layer
+**Status:** Implemented.
 
-Implemented:
-- append-only in-memory proof log list
-- incoming message audit records (`INCOMING_RAW` + rejection/drop outcomes)
-- state transition records with before/after snapshots
+- Deterministic filtering/sorting/assignment for FAST, SECURE, RECOVERABLE tasks.
+- Task lifecycle and SECURE result matching rules are present.
+- Recoverable reassignment logic is present.
 
-Gap:
-- no persistence/export yet (log is process-memory only)
+### Issue 12 — End-to-end scenario
+**Status:** Implemented as in-process deterministic scenario.
 
-### ISSUE 10 — Fault Injection Testing
-**Status:** ✅ Implemented (deterministic test harness)
-
-Implemented:
-- unit tests cover parsing, tamper rejection, timestamp ordering, replay cache, stale detection, role assignment
-- 50-agent fault-injection stream test for replay, delayed messages, stale detection, and deterministic snapshot convergence
-
-### ISSUE 11 — Task Coordination Layer
-**Status:** ✅ Implemented (core deterministic scheduler)
-
-Implemented:
-- strict task schema parser (`TaskSpec` + `TaskRequirements`)
-- deterministic eligibility filter (`ready` + role)
-- deterministic assignment rules for FAST/SECURE/RECOVERABLE
-- lifecycle states (`CREATED → ASSIGNED → EXECUTING → COMPLETED`)
-- SECURE result-matching enforcement
-- RECOVERABLE reassignment on stale assignee
-
-### ISSUE 12 — End-to-End Scenario
-**Status:** ✅ Implemented (50-agent deterministic scenario harness)
-
-Implemented:
-- scripted E2E scenario with 50 agents and deterministic role/bootstrap state
-- FAST/SECURE/RECOVERABLE task injection and completion assertions
-- recoverable-agent kill/stale simulation with automatic reassignment
-- cross-run consistency checks for task snapshots and proof logs
+- `run_end_to_end_scenario` exercises all task types and recoverable reassignment.
+- Tests verify deterministic snapshots across repeated runs.
 
 ---
 
-## Priority bugs to fix now (current stage)
+## Bugs to Fix at This Stage (Priority Ordered)
 
-1. **Potential nondeterminism source (Issue 5):** stale classification depends on local wall clock, not consensus events.
-2. **Reconnect/thread lifecycle bug risk:** `on_connect` starts heartbeat/stale threads each reconnect; repeated reconnects can create duplicate background loops.
-3. **Timestamp unit ambiguity:** code accepts seconds or ms; mixed publishers may cause coarse-order edge effects.
-4. **Replay cache memory/logic edge:** bounded cache can miss repeated old duplicates over long runtimes.
-5. **Task persistence gap:** in-memory task/proof records are not persisted across process restarts.
+### P0 — Reconnect can spawn duplicate background loops
+`on_connect` always starts new heartbeat and stale-monitor threads. If the MQTT client reconnects, additional loops are created, causing duplicate heartbeats and redundant stale checks.
+
+**Fix:** Add idempotent thread-start guards (e.g., flags/events in userdata or module-level singleton thread handles).
+
+### P0 — Event timestamp type drift (`float` vs `int`)
+`parse_message` emits `event["ts"]` as `float` while several downstream paths expect `int` semantics (task result validation, logging consistency).
+
+**Fix:** Keep `ts` strictly `int` end-to-end, normalize once at parse boundary.
+
+### P1 — Determinism leak from local wall-clock stale checks
+`apply_stale_detection` is called using each node’s local clock (`now_ms()`), so peers with clock skew can temporarily disagree on stale classification.
+
+**Fix options:**
+- Base stale evaluation on consensus-ordered time beacons/messages, or
+- require monotonic logical time derived from message stream for deterministic classification windows.
+
+### P1 — Lock contention / lock scope risk
+`on_message` takes `STATE_LOCK` and may call task handlers that also use `TASKS_LOCK`; stale monitor also uses both paths. Current order appears consistent, but nested locking scope is broad.
+
+**Fix:** Standardize lock ordering + reduce critical sections to avoid deadlock regressions as complexity grows.
+
+### P2 — Proof log and tasks are volatile
+`PROOF_LOG` and `TASKS` are in-memory only; restart loses audit trail and in-flight task context.
+
+**Fix:** Optional write-ahead append log and periodic snapshots.
 
 ---
 
-## Stage-appropriate optimizations
+## Optimizations Appropriate for the Current Stage
 
-1. **Thread idempotency guard**
-   - Ensure heartbeat/stale threads are started once per process.
+1. **Thread lifecycle hardening**
+   - Single heartbeat/stale loop per process.
+   - Stop events for clean shutdown/tests.
 
-2. **Deterministic monotonic event sequencing metadata**
-   - Include broker-sequence/receive index in append-only log for offline checks.
+2. **Strict schema contracts**
+   - Enforce typed dataclasses/pydantic-style validation for inbound events.
+   - Explicit enum validation for message types and statuses.
 
-3. **Stricter schema validation**
-   - Enforce allowed `type` enum and role/status enums.
+3. **Determinism observability**
+   - Include stable event hash + recv index in every proof record.
+   - Add deterministic snapshot checksum endpoint/log line.
 
-4. **Stable serialization helpers**
-   - Use canonical serializer centrally for all outbound/inbound comparisons.
+4. **Replay cache durability and scale**
+   - Move from bounded hash set to time-windowed structure keyed by peer+ts(+nonce).
+   - Optionally persist recent window across restart.
 
-5. **Testing upgrades before Issue 11**
-   - Add integration tests with 3 agents and deterministic expected snapshots.
+5. **Higher-fidelity multi-process tests**
+   - Current tests are excellent deterministic unit/system simulations; add real multi-process integration against FoxMQ to validate reconnect/thread behavior.
 
 ---
 
-## Recommended roadmap
+## Recommended Next Milestone
 
-1. Finish **Issue 9** first (proof logging), because it will make all later debugging measurable.
-2. Expand **Issue 10** with multi-process fault injection tests.
-3. Implement **Issue 11** task coordination primitives in pure deterministic reducers.
-4. Build **Issue 12** scenario harness and CI gate.
+**Milestone: “Production Determinism Hardening”**
+
+- Fix reconnect-thread duplication.
+- Enforce integer timestamp contract.
+- Make stale classification deterministic under clock skew assumptions.
+- Add persistence for proof log/task state.
+- Add 3-agent+ live integration test in CI.
+
+This would move the project from “feature-complete prototype” to “operationally reliable coordinator runtime.”
