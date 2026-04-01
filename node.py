@@ -66,6 +66,7 @@ STATE_LOCK = threading.Lock()
 
 RECV_ORDER_INDEX = 0
 RECV_ORDER_LOCK = threading.Lock()
+HEARTBEAT_INTERVAL_SEC = 2
 
 
 def next_recv_order_index() -> int:
@@ -89,21 +90,29 @@ def parse_message(topic: str, payload: str) -> Optional[dict]:
 
     message_type = data.get("type")
     peer_id = data.get("peer_id")
-    if not isinstance(message_type, str) or not isinstance(peer_id, str):
-        print(f"[WARN] Missing/invalid type or peer_id on topic={topic}")
+    ts = data.get("ts")
+    if not isinstance(message_type, str) or not isinstance(peer_id, str) or not isinstance(ts, int):
+        print(f"[WARN] Missing/invalid type, peer_id, or ts on topic={topic}")
         return None
 
     return {
         "type": message_type,
         "peer_id": peer_id,
-        "ts": data.get("ts"),
-        "last_seen_ms": data.get("last_seen_ms"),
+        "ts": ts,
         "role": data.get("role"),
-        "status": data.get("status"),
     }
 
 
-def reduce_state(previous: Optional[PeerState], event: dict) -> PeerState:
+def to_millis(ts: int) -> int:
+    """
+    Normalize timestamps to epoch milliseconds.
+    - 10-digit-ish values are interpreted as seconds
+    - 13-digit-ish values are interpreted as milliseconds
+    """
+    return ts * 1000 if ts < 1_000_000_000_000 else ts
+
+
+def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerState]:
     """
     Deterministic state transition:
       - purely computed from previous state + input event
@@ -117,24 +126,31 @@ def reduce_state(previous: Optional[PeerState], event: dict) -> PeerState:
         status="ready",
     )
 
-    event_last_seen_ms = event.get("last_seen_ms")
-    if not isinstance(event_last_seen_ms, int):
-        ts = event.get("ts")
-        if isinstance(ts, int):
-            # HELLO uses seconds in Issue 1, normalize to ms for replicated state.
-            event_last_seen_ms = ts * 1000
-        else:
-            event_last_seen_ms = baseline.last_seen_ms
+    incoming_last_seen_ms = to_millis(event["ts"])
+    if incoming_last_seen_ms < baseline.last_seen_ms:
+        # Deterministic drop rule for delayed/out-of-order messages.
+        return None
 
     role = event.get("role") if isinstance(event.get("role"), str) else baseline.role
-    status = event.get("status") if isinstance(event.get("status"), str) else baseline.status
 
     return PeerState(
         peer_id=peer_id,
-        last_seen_ms=event_last_seen_ms,
+        last_seen_ms=incoming_last_seen_ms,
         role=role,
-        status=status,
+        status="ready",
     )
+
+
+def heartbeat_loop(client: mqtt.Client, agent_id: str) -> None:
+    """Background liveness publisher."""
+    while True:
+        heartbeat = {
+            "type": "HEARTBEAT",
+            "peer_id": agent_id,
+            "ts": int(time.time()),
+        }
+        publish_json(client, TOPIC_SWARM, heartbeat)
+        time.sleep(HEARTBEAT_INTERVAL_SEC)
 
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
@@ -153,7 +169,12 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
             "ts": int(time.time()),
         }
         publish_json(client, TOPIC_HELLO, hello)
-        # TODO: start a background heartbeat thread
+        heartbeat_thread = threading.Thread(
+            target=heartbeat_loop,
+            args=(client, userdata["agent_id"]),
+            daemon=True,
+        )
+        heartbeat_thread.start()
 
     else:
         print(f"[ERROR] Connection failed: {reason_code}")
@@ -173,7 +194,14 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
 
     with STATE_LOCK:
         prev = STATE.get(event["peer_id"])
-        STATE[event["peer_id"]] = reduce_state(prev, event)
+        next_state = reduce_state(prev, event)
+        if next_state is None:
+            print(
+                f"[DROP] peer_id={event['peer_id']} incoming_ts={event['ts']} "
+                f"current_last_seen_ms={prev.last_seen_ms if prev else 0}"
+            )
+            return
+        STATE[event["peer_id"]] = next_state
         snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
     print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
 
