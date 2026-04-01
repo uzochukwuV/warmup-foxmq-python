@@ -1,4 +1,5 @@
 import unittest
+import json
 
 from node import (
     parse_message,
@@ -7,20 +8,34 @@ from node import (
     to_millis,
     apply_stale_detection,
     STALE_THRESHOLD_MS,
+    sign_payload,
+    seen_recently,
+    RECENT_MESSAGE_HASHES,
+    RECENT_MESSAGE_HASHES_SET,
 )
 
 
 class NodeDeterminismTests(unittest.TestCase):
-    def test_parse_message_requires_schema(self):
-        self.assertIsNone(parse_message("swarm/state", '{"type":"HEARTBEAT","peer_id":"a"}'))
+    def setUp(self):
+        RECENT_MESSAGE_HASHES.clear()
+        RECENT_MESSAGE_HASHES_SET.clear()
 
-        parsed = parse_message(
-            "swarm/state",
-            '{"type":"HEARTBEAT","peer_id":"a","ts":1710000000}',
-        )
+    def test_parse_message_requires_schema(self):
+        invalid_schema = {"payload": {"type": "HEARTBEAT", "peer_id": "a"}, "sig": "x"}
+        self.assertIsNone(parse_message("swarm/state", json.dumps(invalid_schema)))
+
+        payload = {"type": "HEARTBEAT", "peer_id": "a", "ts": 1710000000}
+        signed = {"payload": payload, "sig": sign_payload(payload)}
+        parsed = parse_message("swarm/state", json.dumps(signed))
         self.assertEqual(parsed["type"], "HEARTBEAT")
         self.assertEqual(parsed["peer_id"], "a")
         self.assertEqual(parsed["ts"], 1710000000)
+
+    def test_tampered_messages_are_rejected(self):
+        payload = {"type": "HEARTBEAT", "peer_id": "a", "ts": 1710000000}
+        signed = {"payload": payload, "sig": sign_payload(payload)}
+        tampered = {"payload": {**payload, "peer_id": "evil"}, "sig": signed["sig"]}
+        self.assertIsNone(parse_message("swarm/state", json.dumps(tampered)))
 
     def test_to_millis_normalizes_seconds_and_millis(self):
         self.assertEqual(to_millis(1710000000), 1710000000000)
@@ -44,6 +59,11 @@ class NodeDeterminismTests(unittest.TestCase):
         self.assertIsNotNone(newer_state)
         self.assertEqual(newer_state.last_seen_ms, 1710000002000)
         self.assertEqual(newer_state.role, "leader")
+
+    def test_replay_cache_detects_repeated_event(self):
+        event = {"type": "HEARTBEAT", "peer_id": "agent_a", "ts": 1710000000}
+        self.assertFalse(seen_recently(event))
+        self.assertTrue(seen_recently(event))
 
     def test_stale_detection_marks_dead_node(self):
         state = {

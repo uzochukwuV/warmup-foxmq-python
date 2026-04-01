@@ -25,9 +25,11 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import time
 import threading
+from collections import deque
 from dataclasses import dataclass, asdict
 from typing import Dict, Optional
 import paho.mqtt.client as mqtt
@@ -69,6 +71,9 @@ RECV_ORDER_LOCK = threading.Lock()
 HEARTBEAT_INTERVAL_SEC = 2
 STALE_CHECK_INTERVAL_SEC = 1
 STALE_THRESHOLD_MS = 5000
+RECENT_HASH_CACHE_SIZE = 256
+RECENT_MESSAGE_HASHES = deque(maxlen=RECENT_HASH_CACHE_SIZE)
+RECENT_MESSAGE_HASHES_SET = set()
 
 
 def next_recv_order_index() -> int:
@@ -78,18 +83,44 @@ def next_recv_order_index() -> int:
         return RECV_ORDER_INDEX
 
 
-def parse_message(topic: str, payload: str) -> Optional[dict]:
-    """Parse inbound JSON and normalize to a structured event dict."""
+def canonical_json(data: dict) -> str:
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
+
+
+def sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sign_payload(payload: dict) -> str:
+    return sha256_hex(canonical_json(payload))
+
+
+def verify_envelope(envelope: dict) -> bool:
+    payload = envelope.get("payload")
+    sig = envelope.get("sig")
+    if not isinstance(payload, dict) or not isinstance(sig, str):
+        return False
+    expected_sig = sign_payload(payload)
+    return sig == expected_sig
+
+
+def parse_message(topic: str, raw_message: str) -> Optional[dict]:
+    """Parse signed envelope and normalize payload to a structured event dict."""
     try:
-        data = json.loads(payload)
+        envelope = json.loads(raw_message)
     except json.JSONDecodeError:
         print(f"[WARN] Ignoring non-JSON message on topic={topic}")
         return None
 
-    if not isinstance(data, dict):
-        print(f"[WARN] Ignoring non-object message on topic={topic}")
+    if not isinstance(envelope, dict):
+        print(f"[WARN] Ignoring non-object envelope on topic={topic}")
         return None
 
+    if not verify_envelope(envelope):
+        print(f"[WARN] Invalid signature on topic={topic}")
+        return None
+
+    data = envelope["payload"]
     message_type = data.get("type")
     peer_id = data.get("peer_id")
     ts = data.get("ts")
@@ -97,12 +128,13 @@ def parse_message(topic: str, payload: str) -> Optional[dict]:
         print(f"[WARN] Missing/invalid type, peer_id, or ts on topic={topic}")
         return None
 
-    return {
+    event = {
         "type": message_type,
         "peer_id": peer_id,
         "ts": ts,
         "role": data.get("role"),
     }
+    return event
 
 
 def to_millis(ts: int) -> int:
@@ -112,6 +144,19 @@ def to_millis(ts: int) -> int:
     - 13-digit-ish values are interpreted as milliseconds
     """
     return ts * 1000 if ts < 1_000_000_000_000 else ts
+
+
+def seen_recently(event: dict) -> bool:
+    """Replay protection cache based on canonical event hash."""
+    event_hash = sha256_hex(canonical_json(event))
+    if event_hash in RECENT_MESSAGE_HASHES_SET:
+        return True
+    if len(RECENT_MESSAGE_HASHES) == RECENT_HASH_CACHE_SIZE:
+        evicted = RECENT_MESSAGE_HASHES.popleft()
+        RECENT_MESSAGE_HASHES_SET.remove(evicted)
+    RECENT_MESSAGE_HASHES.append(event_hash)
+    RECENT_MESSAGE_HASHES_SET.add(event_hash)
+    return False
 
 
 def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerState]:
@@ -234,6 +279,9 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
         return
 
     with STATE_LOCK:
+        if seen_recently(event):
+            print(f"[DROP] replay peer_id={event['peer_id']} ts={event['ts']}")
+            return
         prev = STATE.get(event["peer_id"])
         next_state = reduce_state(prev, event)
         if next_state is None:
@@ -264,8 +312,12 @@ def now_ms() -> int:
 
 
 def publish_json(client: mqtt.Client, topic: str, data: dict) -> None:
-    """Publish a dict as a JSON message with QoS 1."""
-    payload = json.dumps(data)
+    """Publish a signed envelope with payload and signature (QoS 1)."""
+    envelope = {
+        "payload": data,
+        "sig": sign_payload(data),
+    }
+    payload = json.dumps(envelope, sort_keys=True)
     client.publish(topic, payload, qos=1)
     print(f"[SEND] topic={topic}  payload={payload}")
 
