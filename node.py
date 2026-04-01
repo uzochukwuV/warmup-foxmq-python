@@ -67,6 +67,8 @@ STATE_LOCK = threading.Lock()
 RECV_ORDER_INDEX = 0
 RECV_ORDER_LOCK = threading.Lock()
 HEARTBEAT_INTERVAL_SEC = 2
+STALE_CHECK_INTERVAL_SEC = 1
+STALE_THRESHOLD_MS = 5000
 
 
 def next_recv_order_index() -> int:
@@ -153,6 +155,43 @@ def heartbeat_loop(client: mqtt.Client, agent_id: str) -> None:
         time.sleep(HEARTBEAT_INTERVAL_SEC)
 
 
+def recompute_roles(state: Dict[str, PeerState]) -> None:
+    """Deterministically assign roles from lexicographically sorted ready peers."""
+    ready_peers = sorted(peer_id for peer_id, peer in state.items() if peer.status == "ready")
+    leader_peer_id = ready_peers[0] if ready_peers else None
+    for peer_id, peer in state.items():
+        if peer.status != "ready":
+            peer.role = "worker"
+        elif peer_id == leader_peer_id:
+            peer.role = "leader"
+        else:
+            peer.role = "worker"
+
+
+def apply_stale_detection(state: Dict[str, PeerState], now_ms_value: int) -> bool:
+    """Mark peers stale if last_seen exceeds threshold and return whether anything changed."""
+    changed = False
+    for peer in state.values():
+        is_stale = now_ms_value - peer.last_seen_ms > STALE_THRESHOLD_MS
+        target_status = "stale" if is_stale else "ready"
+        if peer.status != target_status:
+            peer.status = target_status
+            changed = True
+    recompute_roles(state)
+    return changed
+
+
+def stale_monitor_loop() -> None:
+    """Background stale checker."""
+    while True:
+        with STATE_LOCK:
+            changed = apply_stale_detection(STATE, now_ms())
+            if changed:
+                snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+                print(f"[STALE] {json.dumps(snapshot, sort_keys=True)}")
+        time.sleep(STALE_CHECK_INTERVAL_SEC)
+
+
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
     """Called when the client connects to the FoxMQ broker."""
     if reason_code == 0:
@@ -175,6 +214,8 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
             daemon=True,
         )
         heartbeat_thread.start()
+        stale_thread = threading.Thread(target=stale_monitor_loop, daemon=True)
+        stale_thread.start()
 
     else:
         print(f"[ERROR] Connection failed: {reason_code}")
@@ -202,6 +243,7 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
             )
             return
         STATE[event["peer_id"]] = next_state
+        apply_stale_detection(STATE, now_ms())
         snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
     print(f"[STATE] {json.dumps(snapshot, sort_keys=True)}")
 

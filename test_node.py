@@ -1,6 +1,13 @@
 import unittest
 
-from node import parse_message, reduce_state, PeerState, to_millis
+from node import (
+    parse_message,
+    reduce_state,
+    PeerState,
+    to_millis,
+    apply_stale_detection,
+    STALE_THRESHOLD_MS,
+)
 
 
 class NodeDeterminismTests(unittest.TestCase):
@@ -37,6 +44,35 @@ class NodeDeterminismTests(unittest.TestCase):
         self.assertIsNotNone(newer_state)
         self.assertEqual(newer_state.last_seen_ms, 1710000002000)
         self.assertEqual(newer_state.role, "leader")
+
+    def test_stale_detection_marks_dead_node(self):
+        state = {
+            "agent_a": PeerState(peer_id="agent_a", last_seen_ms=1000, role="worker", status="ready"),
+            "agent_b": PeerState(peer_id="agent_b", last_seen_ms=8000, role="worker", status="ready"),
+        }
+        changed = apply_stale_detection(state, now_ms_value=1000 + STALE_THRESHOLD_MS + 1)
+        self.assertTrue(changed)
+        self.assertEqual(state["agent_a"].status, "stale")
+        self.assertEqual(state["agent_b"].status, "ready")
+
+    def test_role_assignment_is_lexicographic_for_ready_peers(self):
+        state = {
+            "agent_b": PeerState(peer_id="agent_b", last_seen_ms=10_000, role="worker", status="ready"),
+            "agent_a": PeerState(peer_id="agent_a", last_seen_ms=10_000, role="worker", status="ready"),
+            "agent_c": PeerState(peer_id="agent_c", last_seen_ms=0, role="worker", status="ready"),
+        }
+
+        # make agent_c stale, ensure leader is the smallest READY peer id
+        apply_stale_detection(state, now_ms_value=STALE_THRESHOLD_MS + 1)
+        self.assertEqual(state["agent_c"].status, "stale")
+        self.assertEqual(state["agent_a"].role, "leader")
+        self.assertEqual(state["agent_b"].role, "worker")
+
+        # if agent_a later becomes stale, leadership should move to agent_b
+        state["agent_b"].last_seen_ms = 20_000
+        apply_stale_detection(state, now_ms_value=10_000 + STALE_THRESHOLD_MS + 1)
+        self.assertEqual(state["agent_a"].status, "stale")
+        self.assertEqual(state["agent_b"].role, "leader")
 
 
 if __name__ == "__main__":
