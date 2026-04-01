@@ -26,6 +26,7 @@ from node import (
     TASK_COMPLETED,
     TASK_RECOVERABLE,
     TASK_SECURE,
+    run_end_to_end_scenario,
 )
 
 
@@ -208,6 +209,28 @@ class NodeDeterminismTests(unittest.TestCase):
         snapshot_b = {k: (v.last_seen_ms, v.role, v.status) for k, v in sorted(state_b.items())}
         self.assertEqual(snapshot_a, snapshot_b)
         self.assertEqual(state_a["agent_49"].status, "stale")
+
+    def test_end_to_end_scenario_with_50_agents(self):
+        report_a = run_end_to_end_scenario(agent_count=50)
+        report_b = run_end_to_end_scenario(agent_count=50)
+
+        # Coordination consistency
+        self.assertEqual(report_a["task_snapshot"], report_b["task_snapshot"])
+        self.assertEqual(report_a["proof_log"], report_b["proof_log"])
+
+        # FAST/SECURE/RECOVERABLE complete
+        tasks = report_a["task_snapshot"]
+        self.assertEqual(tasks["T_FAST_E2E"]["state"], TASK_COMPLETED)
+        self.assertEqual(tasks["T_SEC_E2E"]["state"], TASK_COMPLETED)
+        self.assertEqual(tasks["T_REC_E2E"]["state"], TASK_COMPLETED)
+
+        # Recoverable reassigns after kill/stale
+        self.assertIsNotNone(report_a["recoverable_original_assignee"])
+        self.assertIsNotNone(report_a["recoverable_reassigned_assignee"])
+        self.assertNotEqual(
+            report_a["recoverable_original_assignee"],
+            report_a["recoverable_reassigned_assignee"],
+        )
 
 
 if __name__ == "__main__":

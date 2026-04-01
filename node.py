@@ -277,14 +277,15 @@ def create_task_record(task: TaskSpec, state: Dict[str, PeerState]) -> dict:
     }
 
 
-def handle_task_create(task_payload: dict, state: Dict[str, PeerState]) -> Optional[dict]:
+def handle_task_create(task_payload: dict, state: Dict[str, PeerState], event_ts: Optional[int] = None) -> Optional[dict]:
     task = parse_task_spec(task_payload)
     if task is None:
         return None
     record = create_task_record(task, state)
     with TASKS_LOCK:
         TASKS[task.task_id] = record
-    append_proof_log("TASK_CREATE", "system", int(time.time()), {"task_id": task.task_id, "assignees": record["assignees"]})
+    ts = event_ts if isinstance(event_ts, int) else int(time.time())
+    append_proof_log("TASK_CREATE", "system", ts, {"task_id": task.task_id, "assignees": record["assignees"]})
     return record
 
 
@@ -338,6 +339,91 @@ def rebalance_recoverable_tasks(state: Dict[str, PeerState]) -> None:
             task["assignees"] = new_assignees
             task["state"] = TASK_ASSIGNED if new_assignees else TASK_CREATED
             task["results"] = {}
+
+
+def reset_runtime_state() -> None:
+    with STATE_LOCK:
+        STATE.clear()
+    with TASKS_LOCK:
+        TASKS.clear()
+    with PROOF_LOG_LOCK:
+        PROOF_LOG.clear()
+    RECENT_MESSAGE_HASHES.clear()
+    RECENT_MESSAGE_HASHES_SET.clear()
+
+
+def bootstrap_agents(agent_ids: List[str], base_ts_ms: int = 10_000) -> Dict[str, PeerState]:
+    """Build deterministic discovered swarm state and roles."""
+    state = {
+        agent_id: PeerState(peer_id=agent_id, last_seen_ms=base_ts_ms, role="worker", status="ready")
+        for agent_id in sorted(agent_ids)
+    }
+    recompute_roles(state)
+    return state
+
+
+def run_end_to_end_scenario(agent_count: int = 50) -> dict:
+    """
+    Deterministic E2E scenario:
+      - bootstrap swarm
+      - assign and complete FAST/SECURE/RECOVERABLE
+      - kill recoverable assignee and verify reassignment
+    """
+    reset_runtime_state()
+    state = bootstrap_agents([f"agent_{i:02d}" for i in range(agent_count)])
+
+    # FAST task
+    fast_task = {
+        "task_id": "T_FAST_E2E",
+        "type": TASK_FAST,
+        "requirements": {"min_agents": 1, "required_role": "worker", "max_latency_ms": 1000, "redundancy": 1},
+        "payload": {},
+    }
+    fast_record = handle_task_create(fast_task, state, event_ts=1)
+    fast_assignee = fast_record["assignees"][0] if fast_record else None
+    if fast_assignee:
+        handle_task_result({"task_id": fast_task["task_id"], "peer_id": fast_assignee, "result": "FAST_OK", "ts": 2})
+
+    # SECURE task
+    secure_task = {
+        "task_id": "T_SEC_E2E",
+        "type": TASK_SECURE,
+        "requirements": {"min_agents": 2, "required_role": "any", "max_latency_ms": 1000, "redundancy": 3},
+        "payload": {},
+    }
+    secure_record = handle_task_create(secure_task, state, event_ts=3)
+    if secure_record:
+        for idx, assignee in enumerate(secure_record["assignees"]):
+            handle_task_result({"task_id": secure_task["task_id"], "peer_id": assignee, "result": "SECURE_OK", "ts": 4 + idx})
+
+    # RECOVERABLE task with kill + reassignment
+    recoverable_task = {
+        "task_id": "T_REC_E2E",
+        "type": TASK_RECOVERABLE,
+        "requirements": {"min_agents": 1, "required_role": "any", "max_latency_ms": 1000, "redundancy": 1},
+        "payload": {},
+    }
+    recoverable_record = handle_task_create(recoverable_task, state, event_ts=10)
+    original_assignee = recoverable_record["assignees"][0] if recoverable_record and recoverable_record["assignees"] else None
+    if original_assignee:
+        state[original_assignee].status = "stale"
+        rebalance_recoverable_tasks(state)
+    updated_record = TASKS.get(recoverable_task["task_id"], {})
+    reassigned = updated_record.get("assignees", [None])[0]
+    if reassigned:
+        handle_task_result({"task_id": recoverable_task["task_id"], "peer_id": reassigned, "result": "RECOVERABLE_OK", "ts": 12})
+
+    with TASKS_LOCK:
+        task_snapshot = json.loads(json.dumps(TASKS, sort_keys=True))
+    with PROOF_LOG_LOCK:
+        proof_snapshot = json.loads(json.dumps(PROOF_LOG, sort_keys=True))
+    return {
+        "state_snapshot": {k: asdict(v) for k, v in sorted(state.items())},
+        "task_snapshot": task_snapshot,
+        "proof_log": proof_snapshot,
+        "recoverable_original_assignee": original_assignee,
+        "recoverable_reassigned_assignee": reassigned,
+    }
 
 
 def to_millis(ts: int) -> int:
@@ -505,7 +591,7 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
             )
             return
         if event["type"] == "TASK_CREATE":
-            created = handle_task_create(event.get("task"), STATE)
+            created = handle_task_create(event.get("task"), STATE, event_ts=event.get("ts"))
             if created is None:
                 append_proof_log(
                     event_type="TASK_CREATE_REJECTED",

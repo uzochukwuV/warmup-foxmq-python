@@ -123,11 +123,13 @@ Implemented:
 - RECOVERABLE reassignment on stale assignee
 
 ### ISSUE 12 — End-to-End Scenario
-**Status:** ❌ Not implemented
+**Status:** ✅ Implemented (50-agent deterministic scenario harness)
 
-Missing:
-- integrated test harness with 3+ agents
-- scripted scenario flow and success assertions
+Implemented:
+- scripted E2E scenario with 50 agents and deterministic role/bootstrap state
+- FAST/SECURE/RECOVERABLE task injection and completion assertions
+- recoverable-agent kill/stale simulation with automatic reassignment
+- cross-run consistency checks for task snapshots and proof logs
 
 ---
 
