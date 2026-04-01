@@ -175,7 +175,7 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
     event = {
         "type": message_type,
         "peer_id": peer_id,
-        "ts": ts,
+        "ts": float(ts),
         "role": data.get("role"),
         "task": data.get("task"),
         "task_id": data.get("task_id"),
