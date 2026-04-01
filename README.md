@@ -103,6 +103,22 @@ You should see both agents printing `[RECV]` lines as messages come through FoxM
 
 ---
 
+## Runtime hardening included
+
+The current runtime includes additional hardening beyond the starter checklist:
+
+- idempotent background loop startup (prevents duplicate heartbeat/stale threads on reconnect)
+- strict integer timestamp normalization at parse boundary
+- logical-time-driven stale detection (derived from accepted message stream timestamps)
+- reduced lock coupling in message handling
+- optional durability:
+  - `SWARM_PROOF_LOG_PATH=/path/to/proof_log.jsonl`
+  - `SWARM_TASKS_SNAPSHOT_PATH=/path/to/tasks_snapshot.json`
+
+See `bugs.md` for the full bug-fix implementation log.
+
+---
+
 ## Your Challenge
 
 Extend `node.py` to complete the warm-up:
