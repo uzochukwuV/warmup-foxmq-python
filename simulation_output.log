@@ -1,0 +1,92 @@
+Starting SwarmRescue-NG Scenario...
+Starting local Python MQTT Broker on port 1883
+[2026-04-05 23:48:56,201] :: WARNING :: amqtt.contexts :: sys_interval is deprecated, use 'plugins' to define configuration
+[2026-04-05 23:48:56,202] :: WARNING :: amqtt.contexts :: 'auth' and 'topic-check' are deprecated, use 'plugins' to define configuration
+/workspace/simple_broker.py:25: DeprecationWarning: Loading plugins from EntryPoints is deprecated and will be removed in a future version. Use `plugins` section of config instead.
+  broker = Broker(config)
+[2026-04-05 23:48:56,226] :: WARNING :: amqtt.broker.plugins.auth_file :: Configuration parameter 'password-file' not found
+[2026-04-05 23:48:56,237] :: INFO :: transitions.core :: Executed callback '<bound method Broker._log_state_change of <amqtt.broker.Broker object at 0x7f6862259fd0>>'
+[2026-04-05 23:48:56,238] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-05 23:48:56,238] :: INFO :: transitions.core :: Finished processing state starting enter callbacks.
+[2026-04-05 23:48:56,238] :: INFO :: amqtt.broker :: Listener 'default' bind to 0.0.0.0:1883 (max_connections=0)
+[2026-04-05 23:48:56,238] :: INFO :: transitions.core :: Finished processing state starting exit callbacks.
+[2026-04-05 23:48:56,238] :: INFO :: transitions.core :: Finished processing state started enter callbacks.
+[2026-04-05 23:48:56,238] :: INFO :: amqtt.broker :: Starting session expiration monitor.
+/workspace/hud_server.py:106: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  client = mqtt.Client(
+[2026-04-05 23:48:58,221] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-05 23:48:58,221] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:36179 on listener 'default'
+[HUD] Starting WebSocket server on ws://0.0.0.0:8080
+[HUD] Connecting to 127.0.0.1:1883...
+Traceback (most recent call last):
+  File "/workspace/hud_server.py", line 151, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/workspace/hud_server.py", line 147, in main
+    async with websockets.serve(ws_handler, "0.0.0.0", args.ws_port):
+               ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/websockets/asyncio/server.py", line 813, in __aenter__
+    return await self
+           ^^^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/websockets/asyncio/server.py", line 831, in __await_impl__
+    server = await self.create_server
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/base_events.py", line 1627, in create_server
+    raise OSError(err.errno, msg) from None
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8080): [errno 98] address already in use
+[2026-04-05 23:48:58,256] :: ERROR :: asyncio :: Unhandled exception in client_connected_cb
+transport: <_SelectorSocketTransport fd=7 read=idle write=<idle, bufsize=0>>
+Traceback (most recent call last):
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/amqtt/broker.py", line 430, in stream_connected
+    await self._client_connected(listener_name, StreamReaderAdapter(reader), StreamWriterAdapter(writer))
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/amqtt/broker.py", line 453, in _client_connected
+    handler, client_session = await self._initialize_client_session(reader, writer, remote_address, remote_port)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/amqtt/broker.py", line 477, in _initialize_client_session
+    handler, client_session = await BrokerProtocolHandler.init_from_connect(reader, writer, self.plugins_manager)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/amqtt/mqtt/protocol/broker_handler.py", line 224, in init_from_connect
+    await writer.close()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/amqtt/adapters.py", line 191, in close
+    self._writer.write_eof()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/streams.py", line 346, in write_eof
+    return self._transport.write_eof()
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/asyncio/selector_events.py", line 1168, in write_eof
+    self._sock.shutdown(socket.SHUT_WR)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+OSError: [Errno 107] Transport endpoint is not connected
+All nodes started.
+Open index.html in your browser to view the HUD.
+Press Ctrl+C to stop all nodes.
+/workspace/drone_agent.py:32: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+/workspace/drone_agent.py:32: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-05 23:49:00,454] :: INFO :: amqtt.broker :: Listener 'default': 2/∞ connections acquired
+[2026-04-05 23:49:00,454] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:59883 on listener 'default'
+[2026-04-05 23:49:00,456] :: INFO :: amqtt.broker :: Listener 'default': 3/∞ connections acquired
+[2026-04-05 23:49:00,457] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:43945 on listener 'default'
+/workspace/drone_agent.py:32: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-05 23:49:00,460] :: INFO :: amqtt.broker :: Listener 'default': 4/∞ connections acquired
+[2026-04-05 23:49:00,460] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:54661 on listener 'default'
+/workspace/drone_agent.py:32: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-05 23:49:00,470] :: INFO :: amqtt.broker :: Listener 'default': 5/∞ connections acquired
+[2026-04-05 23:49:00,470] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:40885 on listener 'default'
+/workspace/drone_agent.py:32: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-05 23:49:00,479] :: INFO :: amqtt.broker :: Listener 'default': 6/∞ connections acquired
+[2026-04-05 23:49:00,479] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:45913 on listener 'default'
+./run_scenario.sh: line 1: kill: (10903) - No such process

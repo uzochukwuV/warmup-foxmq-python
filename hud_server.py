@@ -136,7 +136,7 @@ async def main():
     parser.add_argument("--port", default=1883, type=int)
     parser.add_argument("--username", default="hud")
     parser.add_argument("--password", default="secret")
-    parser.add_argument("--ws-port", default=8080, type=int)
+    parser.add_argument("--ws-port", default=8081, type=int)
     args = parser.parse_args()
 
     # Start MQTT in background thread
