@@ -1,10 +1,14 @@
 #!/bin/bash
 
 echo "Starting SwarmRescue-NG Scenario..."
-echo "Make sure FoxMQ or Mosquitto is running on localhost:1883"
+echo "Starting local Python MQTT Broker on port 1883"
 
 # Kill existing processes on exit
 trap 'kill $(jobs -p)' EXIT
+
+# Start Python Broker
+python simple_broker.py &
+sleep 2
 
 # Start HUD Server
 python hud_server.py &
