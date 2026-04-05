@@ -44,7 +44,7 @@ TOPIC_SWARM = "swarm/state"      # shared BFT-ordered state topic
 TOPIC_HELLO = "swarm/hello"      # initial handshake topic
 
 # ---------------------------------------------------------------------------
-# TODO: Define your shared state here.
+# Shared state definition
 #
 # The warm-up requires each agent to maintain a replicated state like:
 #   {
@@ -64,6 +64,10 @@ class PeerState:
     last_seen_ms: int
     role: str
     status: str
+    position: Optional[list] = None
+    sector: Optional[str] = None
+    battery: Optional[int] = None
+    sector_progress: Optional[int] = None
 
 
 @dataclass
@@ -188,6 +192,10 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
         "task": data.get("task"),
         "task_id": data.get("task_id"),
         "result": data.get("result"),
+        "position": data.get("position"),
+        "sector": data.get("sector"),
+        "battery": data.get("battery"),
+        "sector_progress": data.get("sector_progress"),
     }
     return event
 
@@ -525,8 +533,14 @@ def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerSta
         last_seen_ms=incoming_last_seen_ms,
         role=role,
         status="ready",
+        position=event.get("position", baseline.position),
+        sector=event.get("sector", baseline.sector),
+        battery=event.get("battery", baseline.battery),
+        sector_progress=event.get("sector_progress", baseline.sector_progress),
     )
 
+
+HEARTBEAT_EXTRA_HOOK = None
 
 def heartbeat_loop(client: mqtt.Client, agent_id: str) -> None:
     """Background liveness publisher."""
@@ -536,6 +550,10 @@ def heartbeat_loop(client: mqtt.Client, agent_id: str) -> None:
             "peer_id": agent_id,
             "ts": int(time.time()),
         }
+        if HEARTBEAT_EXTRA_HOOK:
+            extra = HEARTBEAT_EXTRA_HOOK()
+            if extra:
+                heartbeat.update(extra)
         publish_json(client, TOPIC_SWARM, heartbeat)
         time.sleep(HEARTBEAT_INTERVAL_SEC)
 
@@ -709,9 +727,6 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
         live_state_snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
     rebalance_recoverable_tasks({k: PeerState(**v) for k, v in live_state_snapshot.items()})
     print(f"[STATE] {json.dumps(live_state_snapshot, sort_keys=True)}")
-
-    # TODO: detect stale peers (check last_seen_ms against current time)
-    # TODO: mirror role changes from peers
 
 
 def on_disconnect(client: mqtt.Client, userdata, flags, reason_code, properties):
