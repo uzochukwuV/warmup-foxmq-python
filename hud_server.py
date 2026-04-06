@@ -6,6 +6,7 @@ import time
 import websockets
 import paho.mqtt.client as mqtt
 import node
+import copy
 
 # We'll store the latest state here and broadcast it to all WS clients
 LATEST_STATE = {}
@@ -13,6 +14,7 @@ TASKS_STATE = {}
 EVENTS_LOG = []
 WS_CLIENTS = set()
 MAIN_LOOP = None
+STATE_LOCK = threading.Lock()
 
 def on_message(client, userdata, message):
     # Parse just like node.py but we only care about maintaining state to send to frontend
@@ -30,56 +32,70 @@ def on_message(client, userdata, message):
             "peer_id": data.get("peer_id", "system"),
             "raw": data
         }
-        EVENTS_LOG.append(event_record)
-        if len(EVENTS_LOG) > 100:
-            EVENTS_LOG.pop(0)
+        with STATE_LOCK:
+            EVENTS_LOG.append(event_record)
+            if len(EVENTS_LOG) > 100:
+                EVENTS_LOG.pop(0)
 
-        # Update latest state if heartbeat
-        if msg_type == "HEARTBEAT":
-            peer_id = data.get("peer_id")
-            LATEST_STATE[peer_id] = {
-                "peer_id": peer_id,
-                "position": data.get("position"),
-                "sector": data.get("sector"),
-                "battery": data.get("battery"),
-                "sector_progress": data.get("sector_progress"),
-                "role": data.get("role"),
-                "last_seen_ms": node.to_millis(data.get("ts", node.now_ms()))
-            }
-            
-        elif msg_type == "TASK_CREATE":
-            task = data.get("task", {})
-            task_id = task.get("task_id")
-            if task_id:
-                TASKS_STATE[task_id] = task
-                TASKS_STATE[task_id]["state"] = "CREATED"
-                TASKS_STATE[task_id]["assignees"] = []
+            # Update latest state if heartbeat
+            if msg_type == "HEARTBEAT":
+                peer_id = data.get("peer_id")
+                # Get existing drone state or create a new one
+                drone_state = LATEST_STATE.get(peer_id, {})
+                drone_state.update({
+                    "peer_id": peer_id,
+                    "position": data.get("position", drone_state.get("position")),
+                    "sector": data.get("sector", drone_state.get("sector")),
+                    "battery": data.get("battery", drone_state.get("battery")),
+                    "sector_progress": data.get("sector_progress", drone_state.get("sector_progress")),
+                    "role": data.get("role", drone_state.get("role")),
+                    "status": data.get("status", drone_state.get("status", "ready")),
+                    "last_seen_ms": node.to_millis(data.get("ts", node.now_ms()))
+                })
+                LATEST_STATE[peer_id] = drone_state
                 
-        elif msg_type == "TASK_RESULT":
-            task_id = data.get("task_id")
-            if task_id in TASKS_STATE:
-                TASKS_STATE[task_id]["state"] = "COMPLETED"
+            elif msg_type == "TASK_CREATE":
+                task = data.get("task", {})
+                task_id = task.get("task_id")
+                if task_id:
+                    TASKS_STATE[task_id] = task
+                    TASKS_STATE[task_id]["state"] = "CREATED"
+                    TASKS_STATE[task_id]["assignees"] = []
+                    
+            elif msg_type == "TASK_RESULT":
+                task_id = data.get("task_id")
+                if task_id in TASKS_STATE:
+                    TASKS_STATE[task_id]["state"] = "COMPLETED"
                 
     except Exception as e:
         print(f"[HUD] Error parsing msg: {e}")
 
     # Broadcast update to all websocket clients using the main loop
     if MAIN_LOOP and WS_CLIENTS:
-        asyncio.run_coroutine_threadsafe(broadcast_state(), MAIN_LOOP)
+        MAIN_LOOP.call_soon_threadsafe(trigger_broadcast)
+
+def trigger_broadcast():
+    if MAIN_LOOP:
+        asyncio.create_task(broadcast_state())
 
 async def broadcast_state():
     if not WS_CLIENTS:
         return
         
+    with STATE_LOCK:
+        drones_copy = copy.deepcopy(LATEST_STATE)
+        tasks_copy = copy.deepcopy(TASKS_STATE)
+        events_copy = copy.deepcopy(EVENTS_LOG[-10:])
+        
     msg = json.dumps({
         "type": "STATE_UPDATE",
-        "drones": LATEST_STATE,
-        "tasks": TASKS_STATE,
-        "events": EVENTS_LOG[-10:] # send last 10 events
+        "drones": drones_copy,
+        "tasks": tasks_copy,
+        "events": events_copy
     })
     
     websockets_to_remove = set()
-    for ws in WS_CLIENTS:
+    for ws in list(WS_CLIENTS):
         try:
             await ws.send(msg)
         except websockets.exceptions.ConnectionClosed:
@@ -87,15 +103,19 @@ async def broadcast_state():
             
     WS_CLIENTS.difference_update(websockets_to_remove)
 
-async def ws_handler(websocket, path):
+async def ws_handler(websocket):
     WS_CLIENTS.add(websocket)
     try:
         # Send initial state
+        with STATE_LOCK:
+            drones_copy = copy.deepcopy(LATEST_STATE)
+            tasks_copy = copy.deepcopy(TASKS_STATE)
+            events_copy = copy.deepcopy(EVENTS_LOG[-10:])
         await websocket.send(json.dumps({
             "type": "STATE_UPDATE",
-            "drones": LATEST_STATE,
-            "tasks": TASKS_STATE,
-            "events": EVENTS_LOG[-10:]
+            "drones": drones_copy,
+            "tasks": tasks_copy,
+            "events": events_copy
         }))
         async for _ in websocket:
             pass # Keep connection open

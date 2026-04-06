@@ -172,10 +172,9 @@
 
         function updateDrones(drones) {
             dronesContainer.innerHTML = '';
-            const now = Date.now();
             
             Object.values(drones).forEach(drone => {
-                const isStale = (now - drone.last_seen_ms) > 5000;
+                const isStale = drone.status === 'stale';
                 const statusClass = isStale ? 'drone-stale' : 'drone-ready';
                 
                 const el = document.createElement('div');
@@ -204,10 +203,9 @@
 
         function updateStatus(drones, tasks) {
             statusContainer.innerHTML = '';
-            const now = Date.now();
             
             Object.values(drones).forEach(drone => {
-                const isStale = (now - drone.last_seen_ms) > 5000;
+                const isStale = drone.status === 'stale';
                 const el = document.createElement('div');
                 el.style.marginBottom = '10px';
                 el.innerHTML = `

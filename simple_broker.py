@@ -8,13 +8,14 @@ config = {
     'listeners': {
         'default': {
             'type': 'tcp',
-            'bind': '0.0.0.0:1883'
+            'bind': '127.0.0.1:1883'
         },
     },
     'sys_interval': 10,
     'auth': {
-        'allow-anonymous': True,
-        'plugins': ['auth_anonymous']
+        'allow-anonymous': False,
+        'plugins': ['auth_file', 'auth_anonymous'],
+        'password-file': 'passwd'
     },
     'topic-check': {
         'enabled': False
