@@ -1,0 +1,224 @@
+Starting SwarmRescue-NG Scenario...
+Starting local Python MQTT Broker on port 1883
+[2026-04-06 00:18:36,917] :: WARNING :: amqtt.contexts :: sys_interval is deprecated, use 'plugins' to define configuration
+[2026-04-06 00:18:36,917] :: WARNING :: amqtt.contexts :: 'auth' and 'topic-check' are deprecated, use 'plugins' to define configuration
+/workspace/simple_broker.py:25: DeprecationWarning: Loading plugins from EntryPoints is deprecated and will be removed in a future version. Use `plugins` section of config instead.
+  broker = Broker(config)
+[2026-04-06 00:18:36,943] :: WARNING :: amqtt.broker.plugins.auth_file :: Configuration parameter 'password-file' not found
+[2026-04-06 00:18:36,955] :: INFO :: transitions.core :: Executed callback '<bound method Broker._log_state_change of <amqtt.broker.Broker object at 0x7f85df85dfd0>>'
+[2026-04-06 00:18:36,956] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:36,956] :: INFO :: transitions.core :: Finished processing state starting enter callbacks.
+[2026-04-06 00:18:36,956] :: INFO :: amqtt.broker :: Listener 'default' bind to 127.0.0.1:1883 (max_connections=0)
+[2026-04-06 00:18:36,956] :: INFO :: transitions.core :: Finished processing state starting exit callbacks.
+[2026-04-06 00:18:36,956] :: INFO :: transitions.core :: Finished processing state started enter callbacks.
+[2026-04-06 00:18:36,956] :: INFO :: amqtt.broker :: Starting session expiration monitor.
+/workspace/hud_server.py:126: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  client = mqtt.Client(
+[2026-04-06 00:18:38,931] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-06 00:18:38,931] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:45347 on listener 'default'
+[2026-04-06 00:18:38,932] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:38,933] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=hud_server, state=connected)>'
+[2026-04-06 00:18:38,933] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[2026-04-06 00:18:38,933] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+[2026-04-06 00:18:38,935] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:38,935] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=hud_server, state=disconnected)>'
+[2026-04-06 00:18:38,935] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:38,935] :: INFO :: amqtt.broker :: Listener 'default': 0/∞ connections acquired
+[2026-04-06 00:18:38,935] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+All nodes started.
+Open index.html in your browser to view the HUD.
+Press Ctrl+C to stop all nodes.
+/workspace/drone_agent.py:33: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-06 00:18:41,090] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-06 00:18:41,091] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:54653 on listener 'default'
+[2026-04-06 00:18:41,092] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:41,092] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=drone_05, state=connected)>'
+[2026-04-06 00:18:41,092] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[2026-04-06 00:18:41,092] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+[INFO] Connecting DroneAgent drone_05 to FoxMQ at 127.0.0.1:1883
+Traceback (most recent call last):
+  File "/workspace/drone_agent.py", line 220, in <module>
+    agent.start()
+    ~~~~~~~~~~~^^
+  File "/workspace/drone_agent.py", line 178, in start
+    self.client.loop_forever()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2297, in loop_forever
+    rc = self._loop(timeout)
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 1686, in _loop
+    rc = self.loop_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2100, in loop_read
+    rc = self._packet_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3142, in _packet_read
+    rc = self._packet_handle()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3814, in _packet_handle
+    return self._handle_connack()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3922, in _handle_connack
+    on_connect(
+    ~~~~~~~~~~^
+        self, self._userdata, flags_dict, result)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: on_connect() missing 1 required positional argument: 'properties'
+[2026-04-06 00:18:41,133] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:41,133] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=drone_05, state=disconnected)>'
+[2026-04-06 00:18:41,133] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:41,133] :: INFO :: amqtt.broker :: Listener 'default': 0/∞ connections acquired
+[2026-04-06 00:18:41,134] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+/workspace/drone_agent.py:33: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-06 00:18:41,137] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-06 00:18:41,137] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:35667 on listener 'default'
+[2026-04-06 00:18:41,138] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:41,138] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=drone_04, state=connected)>'
+[2026-04-06 00:18:41,138] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[2026-04-06 00:18:41,138] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+[INFO] Connecting DroneAgent drone_04 to FoxMQ at 127.0.0.1:1883
+Traceback (most recent call last):
+  File "/workspace/drone_agent.py", line 220, in <module>
+    agent.start()
+    ~~~~~~~~~~~^^
+  File "/workspace/drone_agent.py", line 178, in start
+    self.client.loop_forever()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2297, in loop_forever
+    rc = self._loop(timeout)
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 1686, in _loop
+    rc = self.loop_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2100, in loop_read
+    rc = self._packet_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3142, in _packet_read
+    rc = self._packet_handle()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3814, in _packet_handle
+    return self._handle_connack()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3922, in _handle_connack
+    on_connect(
+    ~~~~~~~~~~^
+        self, self._userdata, flags_dict, result)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: on_connect() missing 1 required positional argument: 'properties'
+[2026-04-06 00:18:41,158] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:41,158] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=drone_04, state=disconnected)>'
+[2026-04-06 00:18:41,158] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:41,158] :: INFO :: amqtt.broker :: Listener 'default': 0/∞ connections acquired
+[2026-04-06 00:18:41,158] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+/workspace/drone_agent.py:33: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-06 00:18:41,168] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-06 00:18:41,169] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:38491 on listener 'default'
+[2026-04-06 00:18:41,169] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:41,170] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=drone_03, state=connected)>'
+[2026-04-06 00:18:41,170] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[2026-04-06 00:18:41,170] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+[INFO] Connecting DroneAgent drone_03 to FoxMQ at 127.0.0.1:1883
+Traceback (most recent call last):
+/workspace/drone_agent.py:33: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+  File "/workspace/drone_agent.py", line 220, in <module>
+    agent.start()
+    ~~~~~~~~~~~^^
+  File "/workspace/drone_agent.py", line 178, in start
+    self.client.loop_forever()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2297, in loop_forever
+    rc = self._loop(timeout)
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 1686, in _loop
+    rc = self.loop_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2100, in loop_read
+    rc = self._packet_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3142, in _packet_read
+    rc = self._packet_handle()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3814, in _packet_handle
+    return self._handle_connack()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3922, in _handle_connack
+    on_connect(
+    ~~~~~~~~~~^
+        self, self._userdata, flags_dict, result)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: on_connect() missing 1 required positional argument: 'properties'
+[2026-04-06 00:18:41,176] :: INFO :: amqtt.broker :: Listener 'default': 2/∞ connections acquired
+[2026-04-06 00:18:41,177] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:44095 on listener 'default'
+[2026-04-06 00:18:41,177] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:41,177] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=drone_01, state=connected)>'
+[2026-04-06 00:18:41,177] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[INFO] Connecting DroneAgent drone_01 to FoxMQ at 127.0.0.1:1883
+[2026-04-06 00:18:41,178] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+Traceback (most recent call last):
+  File "/workspace/drone_agent.py", line 220, in <module>
+    agent.start()
+    ~~~~~~~~~~~^^
+  File "/workspace/drone_agent.py", line 178, in start
+    self.client.loop_forever()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2297, in loop_forever
+    rc = self._loop(timeout)
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 1686, in _loop
+    rc = self.loop_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2100, in loop_read
+    rc = self._packet_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3142, in _packet_read
+    rc = self._packet_handle()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3814, in _packet_handle
+    return self._handle_connack()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3922, in _handle_connack
+    on_connect(
+    ~~~~~~~~~~^
+        self, self._userdata, flags_dict, result)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: on_connect() missing 1 required positional argument: 'properties'
+/workspace/drone_agent.py:33: DeprecationWarning: Callback API version 1 is deprecated, update to latest version
+  self.client = mqtt.Client(
+[2026-04-06 00:18:41,184] :: INFO :: amqtt.broker :: Listener 'default': 3/∞ connections acquired
+[2026-04-06 00:18:41,186] :: INFO :: amqtt.broker :: Connection from 127.0.0.1:45755 on listener 'default'
+[2026-04-06 00:18:41,187] :: INFO :: transitions.core :: Finished processing state new exit callbacks.
+[2026-04-06 00:18:41,187] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_connected of Session(clientId=drone_02, state=connected)>'
+[2026-04-06 00:18:41,187] :: INFO :: transitions.core :: Finished processing state connected enter callbacks.
+[2026-04-06 00:18:41,187] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_connected' EVENT FIRED ###
+[INFO] Connecting DroneAgent drone_02 to FoxMQ at 127.0.0.1:1883
+Traceback (most recent call last):
+  File "/workspace/drone_agent.py", line 220, in <module>
+    agent.start()
+    ~~~~~~~~~~~^^
+  File "/workspace/drone_agent.py", line 178, in start
+    self.client.loop_forever()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2297, in loop_forever
+    rc = self._loop(timeout)
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 1686, in _loop
+    rc = self.loop_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 2100, in loop_read
+    rc = self._packet_read()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3142, in _packet_read
+    rc = self._packet_handle()
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3814, in _packet_handle
+    return self._handle_connack()
+           ~~~~~~~~~~~~~~~~~~~~^^
+  File "/root/.pyenv/versions/3.14.3/lib/python3.14/site-packages/paho/mqtt/client.py", line 3922, in _handle_connack
+    on_connect(
+    ~~~~~~~~~~^
+        self, self._userdata, flags_dict, result)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: on_connect() missing 1 required positional argument: 'properties'
+[2026-04-06 00:18:41,197] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:41,197] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=drone_03, state=disconnected)>'
+[2026-04-06 00:18:41,197] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:41,197] :: INFO :: amqtt.broker :: Listener 'default': 2/∞ connections acquired
+[2026-04-06 00:18:41,198] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+[2026-04-06 00:18:41,202] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:41,203] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=drone_01, state=disconnected)>'
+[2026-04-06 00:18:41,203] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:41,203] :: INFO :: amqtt.broker :: Listener 'default': 1/∞ connections acquired
+[2026-04-06 00:18:41,203] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+[2026-04-06 00:18:41,209] :: INFO :: transitions.core :: Finished processing state connected exit callbacks.
+[2026-04-06 00:18:41,209] :: INFO :: transitions.core :: Executed callback '<bound method Session._on_enter_disconnected of Session(clientId=drone_02, state=disconnected)>'
+[2026-04-06 00:18:41,209] :: INFO :: transitions.core :: Finished processing state disconnected enter callbacks.
+[2026-04-06 00:18:41,209] :: INFO :: amqtt.broker :: Listener 'default': 0/∞ connections acquired
+[2026-04-06 00:18:41,209] :: INFO :: amqtt.broker.plugins.event_logger_plugin :: ### 'on_broker_client_disconnected' EVENT FIRED ###
+./run_scenario.sh: line 1: kill: (3824) - No such process
+./run_scenario.sh: line 1: kill: (3909) - No such process
+./run_scenario.sh: line 1: kill: (3910) - No such process
+./run_scenario.sh: line 1: kill: (4083) - No such process

@@ -3,6 +3,7 @@ import time
 import threading
 import json
 import sys
+import os
 import paho.mqtt.client as mqtt
 
 import node
@@ -28,10 +29,11 @@ class DroneAgent:
         # Hook into node.py's heartbeat
         node.HEARTBEAT_EXTRA_HOOK = self.get_heartbeat_data
 
-        # Build MQTTv5 client
+        # Build MQTT client (amqtt mainly supports MQTT 3.1.1)
         self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION1,
             client_id=agent_id,
-            protocol=mqtt.MQTTv5,
+            protocol=mqtt.MQTTv311,
             userdata={"host": host, "port": port, "agent_id": agent_id},
         )
         self.client.username_pw_set(username, password)
@@ -64,19 +66,21 @@ class DroneAgent:
         # We can also parse it ourselves to listen for VICTIM_DETECTED or TASK_SECURE
         try:
             payload = message.payload.decode("utf-8")
-            envelope = json.loads(payload)
-            data = envelope.get("payload", {})
-            msg_type = data.get("type")
+            event = node.parse_message(message.topic, payload)
+            if event is None:
+                return
+
+            msg_type = event.get("type")
             
-            if msg_type == "VICTIM_DETECTED" and data.get("peer_id") != self.agent_id:
-                print(f"[{self.agent_id}] Heard VICTIM_DETECTED from {data.get('peer_id')} at {data.get('position')}")
+            if msg_type == "VICTIM_DETECTED" and event.get("peer_id") != self.agent_id:
+                print(f"[{self.agent_id}] Heard VICTIM_DETECTED from {event.get('peer_id')} at {event.get('position')}")
                 # A scout could create a TASK_SECURE here, or a leader could.
                 # Let's say if we hear VICTIM_DETECTED, the leader creates a TASK_SECURE
                 if self.role == "leader" or node.STATE.get(self.agent_id, node.PeerState(peer_id="", last_seen_ms=0, role="", status="")).role == "leader":
-                    self.create_secure_task(data.get("position"))
+                    self.create_secure_task(event.get("position"))
             
             elif msg_type == "TASK_CREATE":
-                task_spec = data.get("task", {})
+                task_spec = event.get("task", {})
                 if task_spec.get("type") == node.TASK_SECURE:
                     print(f"[{self.agent_id}] Received TASK_SECURE for victim confirmation.")
                     
@@ -128,7 +132,7 @@ class DroneAgent:
             # Failure injection
             if self.fail_after > 0 and elapsed > self.fail_after:
                 print(f"[{self.agent_id}] CRITICAL FAILURE INJECTED. Drone offline.")
-                sys.exit(1)
+                os._exit(1)
                 
             # Update battery and progress
             self.battery = max(0, 100 - int(elapsed / 2))

@@ -10,6 +10,9 @@ trap 'kill $(jobs -p)' EXIT
 python simple_broker.py &
 sleep 2
 
+# Start HTTP Server for UI
+python3 -m http.server 8000 &
+
 # Start HUD Server
 python hud_server.py &
 sleep 2

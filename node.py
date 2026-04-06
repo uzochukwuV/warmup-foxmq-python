@@ -93,7 +93,7 @@ RECV_ORDER_INDEX = 0
 RECV_ORDER_LOCK = threading.Lock()
 HEARTBEAT_INTERVAL_SEC = 2
 STALE_CHECK_INTERVAL_SEC = 1
-STALE_THRESHOLD_MS = 5000
+STALE_THRESHOLD_MS = 3000
 RECENT_HASH_CACHE_SIZE = 256
 RECENT_MESSAGE_HASHES = deque(maxlen=RECENT_HASH_CACHE_SIZE)
 RECENT_MESSAGE_HASHES_SET = set()
@@ -192,11 +192,10 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
         "task": data.get("task"),
         "task_id": data.get("task_id"),
         "result": data.get("result"),
-        "position": data.get("position"),
-        "sector": data.get("sector"),
-        "battery": data.get("battery"),
-        "sector_progress": data.get("sector_progress"),
     }
+    for field in ["position", "sector", "battery", "sector_progress"]:
+        if field in data:
+            event[field] = data[field]
     return event
 
 
@@ -533,10 +532,10 @@ def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerSta
         last_seen_ms=incoming_last_seen_ms,
         role=role,
         status="ready",
-        position=event.get("position", baseline.position),
-        sector=event.get("sector", baseline.sector),
-        battery=event.get("battery", baseline.battery),
-        sector_progress=event.get("sector_progress", baseline.sector_progress),
+        position=event.get("position") if event.get("position") is not None else baseline.position,
+        sector=event.get("sector") if event.get("sector") is not None else baseline.sector,
+        battery=event.get("battery") if event.get("battery") is not None else baseline.battery,
+        sector_progress=event.get("sector_progress") if event.get("sector_progress") is not None else baseline.sector_progress,
     )
 
 
@@ -600,7 +599,7 @@ def stale_monitor_loop() -> None:
         time.sleep(STALE_CHECK_INTERVAL_SEC)
 
 
-def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
+def on_connect(client: mqtt.Client, userdata, flags, reason_code):
     """Called when the client connects to the FoxMQ broker."""
     global HEARTBEAT_THREAD, STALE_THREAD
     if reason_code == 0:
@@ -729,8 +728,8 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     print(f"[STATE] {json.dumps(live_state_snapshot, sort_keys=True)}")
 
 
-def on_disconnect(client: mqtt.Client, userdata, flags, reason_code, properties):
-    print(f"[DISCONNECTED] reason={reason_code}")
+def on_disconnect(client: mqtt.Client, userdata, rc):
+    print(f"[DISCONNECTED] reason={rc}")
 
 
 # ---------------------------------------------------------------------------
@@ -765,10 +764,11 @@ def main() -> None:
     parser.add_argument("--agent-id", required=True, help="Unique ID for this agent")
     args = parser.parse_args()
 
-    # Build MQTTv5 client
+    # Build MQTTv311 client
     client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1,
         client_id=args.agent_id,
-        protocol=mqtt.MQTTv5,
+        protocol=mqtt.MQTTv311,
         userdata={"host": args.host, "port": args.port, "agent_id": args.agent_id},
     )
 
