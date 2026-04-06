@@ -29,10 +29,11 @@ class DroneAgent:
         # Hook into node.py's heartbeat
         node.HEARTBEAT_EXTRA_HOOK = self.get_heartbeat_data
 
-        # Build MQTTv5 client
+        # Build MQTT client (amqtt mainly supports MQTT 3.1.1)
         self.client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION1,
             client_id=agent_id,
-            protocol=mqtt.MQTTv5,
+            protocol=mqtt.MQTTv311,
             userdata={"host": host, "port": port, "agent_id": agent_id},
         )
         self.client.username_pw_set(username, password)

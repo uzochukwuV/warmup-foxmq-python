@@ -124,8 +124,9 @@ async def ws_handler(websocket):
 
 def start_mqtt(host, port, username, password):
     client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1,
         client_id="hud_server",
-        protocol=mqtt.MQTTv5
+        protocol=mqtt.MQTTv311
     )
     client.username_pw_set(username, password)
     

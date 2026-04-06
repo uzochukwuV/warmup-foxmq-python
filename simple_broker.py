@@ -13,9 +13,8 @@ config = {
     },
     'sys_interval': 10,
     'auth': {
-        'allow-anonymous': False,
-        'plugins': ['auth_file', 'auth_anonymous'],
-        'password-file': 'passwd'
+        'allow-anonymous': True,
+        'plugins': ['auth_anonymous']
     },
     'topic-check': {
         'enabled': False

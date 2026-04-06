@@ -599,7 +599,7 @@ def stale_monitor_loop() -> None:
         time.sleep(STALE_CHECK_INTERVAL_SEC)
 
 
-def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
+def on_connect(client: mqtt.Client, userdata, flags, reason_code):
     """Called when the client connects to the FoxMQ broker."""
     global HEARTBEAT_THREAD, STALE_THREAD
     if reason_code == 0:
@@ -728,8 +728,8 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     print(f"[STATE] {json.dumps(live_state_snapshot, sort_keys=True)}")
 
 
-def on_disconnect(client: mqtt.Client, userdata, flags, reason_code, properties):
-    print(f"[DISCONNECTED] reason={reason_code}")
+def on_disconnect(client: mqtt.Client, userdata, rc):
+    print(f"[DISCONNECTED] reason={rc}")
 
 
 # ---------------------------------------------------------------------------
@@ -764,10 +764,11 @@ def main() -> None:
     parser.add_argument("--agent-id", required=True, help="Unique ID for this agent")
     args = parser.parse_args()
 
-    # Build MQTTv5 client
+    # Build MQTTv311 client
     client = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION1,
         client_id=args.agent_id,
-        protocol=mqtt.MQTTv5,
+        protocol=mqtt.MQTTv311,
         userdata={"host": args.host, "port": args.port, "agent_id": args.agent_id},
     )
 
