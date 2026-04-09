@@ -122,13 +122,17 @@ async def ws_handler(websocket):
     finally:
         WS_CLIENTS.remove(websocket)
 
-def start_mqtt(host, port, username, password):
+def start_mqtt(host, port, username, password, protocol=mqtt.MQTTv311, use_tls=False):
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION1,
         client_id="hud_server",
-        protocol=mqtt.MQTTv311
+        protocol=protocol
     )
     client.username_pw_set(username, password)
+    if use_tls:
+        import ssl
+        client.tls_set(cert_reqs=ssl.CERT_NONE)
+        client.tls_insecure_set(True)
     
     def on_connect(client, userdata, flags, rc, properties):
         if rc == 0:
@@ -158,10 +162,12 @@ async def main():
     parser.add_argument("--username", default="hud")
     parser.add_argument("--password", default="secret")
     parser.add_argument("--ws-port", default=8081, type=int)
+    parser.add_argument("--protocol", type=int, default=4, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
+    parser.add_argument("--tls", action="store_true", help="Use TLS for MQTT connection")
     args = parser.parse_args()
 
     # Start MQTT in background thread
-    threading.Thread(target=start_mqtt, args=(args.host, args.port, args.username, args.password), daemon=True).start()
+    threading.Thread(target=start_mqtt, args=(args.host, args.port, args.username, args.password, args.protocol, args.tls), daemon=True).start()
 
     # Start WebSocket server
     print(f"[HUD] Starting WebSocket server on ws://0.0.0.0:{args.ws_port}")

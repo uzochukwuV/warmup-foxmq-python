@@ -5,16 +5,17 @@ import json
 import sys
 import os
 import paho.mqtt.client as mqtt
+from google.cloud import aiplatform
 
 import node
 
 # Configuration
 # Drones and their assigned sectors (default)
 # NW, NE, SW, SE, CENTER
-# We can mock this by passing it as arguments.
+# We can pass these as arguments.
 
 class DroneAgent:
-    def __init__(self, host, port, username, password, agent_id, sector, role="scout", fail_after=0):
+    def __init__(self, host, port, username, password, agent_id, sector, role="scout", fail_after=0, protocol=mqtt.MQTTv311, vertex_project=None, vertex_endpoint=None):
         self.agent_id = agent_id
         self.sector = sector
         self.role = role
@@ -23,17 +24,33 @@ class DroneAgent:
         self.sector_progress = 0
         self.fail_after = fail_after
         
+        # Vertex AI Live Integration
+        self.vertex_project = vertex_project
+        self.vertex_endpoint = vertex_endpoint
+        self.vertex_client = None
+        
+        if self.vertex_project and self.vertex_endpoint:
+            try:
+                aiplatform.init(project=self.vertex_project)
+                self.vertex_client = aiplatform.Endpoint(self.vertex_endpoint)
+                print(f"[{self.agent_id}] Vertex AI integration initialized. Endpoint: {self.vertex_endpoint}")
+            except Exception as e:
+                print(f"[{self.agent_id}] WARNING: Failed to initialize Vertex AI: {e}")
+                self.vertex_client = None
+        else:
+            print(f"[{self.agent_id}] Vertex AI parameters missing. Falling back to local simulation logic.")
+        
         self.victim_detected = False
         self.victim_position = None
 
         # Hook into node.py's heartbeat
         node.HEARTBEAT_EXTRA_HOOK = self.get_heartbeat_data
 
-        # Build MQTT client (amqtt mainly supports MQTT 3.1.1)
+        # Build MQTT client (FoxMQ supports MQTTv5, local simple_broker uses MQTTv311)
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION1,
             client_id=agent_id,
-            protocol=mqtt.MQTTv311,
+            protocol=protocol,
             userdata={"host": host, "port": port, "agent_id": agent_id},
         )
         self.client.username_pw_set(username, password)
@@ -145,8 +162,26 @@ class DroneAgent:
             
             # Mock finding a victim (e.g., if agent_01 after 20 seconds)
             if not self.victim_detected and elapsed > 20 and self.agent_id == "drone_01":
-                self.victim_detected = True
-                self.publish_victim_detected()
+                if self.vertex_client:
+                    # Live Vertex AI Integration
+                    # Simulate passing camera telemetry or IR sensor data to the Vertex Endpoint
+                    sensor_payload = {"instances": [{"position": self.position, "thermal_signature": "high"}]}
+                    try:
+                        print(f"[{self.agent_id}] Querying Vertex AI Endpoint for victim confirmation...")
+                        response = self.vertex_client.predict(instances=sensor_payload["instances"])
+                        
+                        # Process response. A real model might return [{"confidence": 0.95, "class": "victim"}]
+                        # We'll assume the endpoint confirms it if we get a successful 200 response
+                        if response and response.predictions:
+                            self.victim_detected = True
+                            print(f"[{self.agent_id}] Vertex AI confirmed victim! Predictions: {response.predictions}")
+                            self.publish_victim_detected()
+                    except Exception as e:
+                        print(f"[{self.agent_id}] Vertex AI prediction failed: {e}")
+                else:
+                    # Fallback to deterministic logic
+                    self.victim_detected = True
+                    self.publish_victim_detected()
                 
             # Check if we are assigned any TASK_SECURE or TASK_RECOVERABLE
             tasks_to_execute = []
@@ -205,6 +240,10 @@ if __name__ == "__main__":
     parser.add_argument("--sector", required=True)
     parser.add_argument("--role", default="scout")
     parser.add_argument("--fail-after", type=int, default=0, help="Seconds before simulated crash")
+    parser.add_argument("--protocol", type=int, default=4, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
+    parser.add_argument("--tls", action="store_true", help="Use TLS for MQTT connection")
+    parser.add_argument("--vertex-project", help="Google Cloud Project ID for Vertex AI")
+    parser.add_argument("--vertex-endpoint", help="Vertex AI Endpoint ID")
     args = parser.parse_args()
 
     agent = DroneAgent(
@@ -215,6 +254,13 @@ if __name__ == "__main__":
         agent_id=args.agent_id,
         sector=args.sector,
         role=args.role,
-        fail_after=args.fail_after
+        fail_after=args.fail_after,
+        protocol=args.protocol,
+        vertex_project=args.vertex_project,
+        vertex_endpoint=args.vertex_endpoint
     )
+    if args.tls:
+        import ssl
+        agent.client.tls_set(cert_reqs=ssl.CERT_NONE)
+        agent.client.tls_insecure_set(True)
     agent.start()
