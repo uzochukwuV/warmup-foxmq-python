@@ -1,39 +1,62 @@
 #!/bin/bash
 
 echo "Starting SwarmRescue-NG Scenario..."
-echo "Starting local Python MQTT Broker on port 1883"
+
+# Configuration for Live Integrations
+# 1. FoxMQ Live Broker
+MQTT_HOST=${FOXMQQ_HOST:-"127.0.0.1"}
+MQTT_PORT=${FOXMQQ_PORT:-1883}
+MQTT_USER=${FOXMQQ_USER:-"agent"}
+MQTT_PASS=${FOXMQQ_PASS:-"secret"}
+MQTT_PROTOCOL=${FOXMQQ_PROTOCOL:-4} # 4=MQTTv311, 5=MQTTv5
+MQTT_TLS_FLAG=""
+if [ "$FOXMQQ_TLS" = "true" ]; then
+    MQTT_TLS_FLAG="--tls"
+fi
+
+# 2. Google Cloud Vertex AI Integration
+VERTEX_ARGS=""
+if [ -n "$VERTEX_PROJECT" ] && [ -n "$VERTEX_ENDPOINT" ]; then
+    echo "Live Vertex AI Integration Enabled (Project: $VERTEX_PROJECT, Endpoint: $VERTEX_ENDPOINT)"
+    VERTEX_ARGS="--vertex-project $VERTEX_PROJECT --vertex-endpoint $VERTEX_ENDPOINT"
+else
+    echo "Vertex AI Integration Disabled (Running local simulation logic)"
+fi
+
+# Start local Python Broker ONLY if running locally
+if [ "$MQTT_HOST" = "127.0.0.1" ]; then
+    echo "Starting local Python MQTT Broker on port 1883"
+    python simple_broker.py &
+    sleep 2
+fi
 
 # Kill existing processes on exit
 trap 'kill $(jobs -p)' EXIT
-
-# Start Python Broker
-python simple_broker.py &
-sleep 2
 
 # Start HTTP Server for UI
 python3 -m http.server 8000 &
 
 # Start HUD Server
-python hud_server.py &
+python hud_server.py --host $MQTT_HOST --port $MQTT_PORT --username hud --password secret --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 sleep 2
 
 # Start 5 Drones
-# Drone 01: NW, scout (finds victim after 20s)
-python drone_agent.py --username agent --password secret --agent-id drone_01 --sector NW --role scout &
+# Drone 01: NW, scout (finds victim after 20s, uses Vertex AI if configured)
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_01 --sector NW --role scout $VERTEX_ARGS --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 02: NE, scout (fails after 30s)
-python drone_agent.py --username agent --password secret --agent-id drone_02 --sector NE --role scout --fail-after 30 &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_02 --sector NE --role scout --fail-after 30 --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 03: SW, scout
-python drone_agent.py --username agent --password secret --agent-id drone_03 --sector SW --role scout &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_03 --sector SW --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 04: SE, scout
-python drone_agent.py --username agent --password secret --agent-id drone_04 --sector SE --role scout &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_04 --sector SE --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 05: CENTER, leader
-python drone_agent.py --username agent --password secret --agent-id drone_05 --sector CENTER --role leader &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_05 --sector CENTER --role leader --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 echo "All nodes started."
-echo "Open index.html in your browser to view the HUD."
+echo "Open http://localhost:8000/index.html in your browser to view the HUD."
 echo "Press Ctrl+C to stop all nodes."
 wait
