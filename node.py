@@ -592,10 +592,11 @@ def stale_monitor_loop() -> None:
             continue
         with STATE_LOCK:
             changed = apply_stale_detection(STATE, logical_now)
-            state_snapshot = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
-        rebalance_recoverable_tasks(state_snapshot)
+            live_state_snapshot = {k: PeerState(**asdict(v)) for k, v in STATE.items()}
+            state_snapshot_dict = {k: asdict(v) for k, v in sorted(STATE.items(), key=lambda item: item[0])}
+        rebalance_recoverable_tasks(live_state_snapshot)
         if changed:
-            print(f"[STALE] {json.dumps(state_snapshot, sort_keys=True)}")
+            print(f"[STALE] {json.dumps(state_snapshot_dict, sort_keys=True)}")
         time.sleep(STALE_CHECK_INTERVAL_SEC)
 
 
