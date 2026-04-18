@@ -50,7 +50,7 @@ python3 -m http.server 8000 &
 python hud_server.py --host $MQTT_HOST --port $MQTT_PORT --username hud --password secret --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 sleep 2
 
-# Start 5 Drones
+# Start 10 Drones
 # Drone 01: NW, scout (finds victim after 20s, uses Vertex AI if configured)
 python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_01 --sector NW --role scout $VERTEX_ARGS --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
@@ -65,6 +65,13 @@ python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER 
 
 # Drone 05: CENTER, leader
 python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_05 --sector CENTER --role leader --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+
+# Additional 5 Drones for the 10-node scenario
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_06 --sector NORTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_07 --sector SOUTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_08 --sector EAST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_09 --sector WEST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_10 --sector BACKUP --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 echo "All nodes started."
 echo "Open http://localhost:8000/index.html in your browser to view the HUD."

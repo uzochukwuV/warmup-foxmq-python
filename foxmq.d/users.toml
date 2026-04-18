@@ -1,0 +1,5 @@
+[users.producer]
+password-hash = "$argon2id$v=19$m=19456,t=2,p=1$o000TKCScq4M2zbyX6XfTA$fug2Lv9gqNASvGuX8EFaVWjF+4NRjexdDOv/ID5PCos"
+
+[users.hud]
+password-hash = "$argon2id$v=19$m=19456,t=2,p=1$BvmTYCnBwm8E5FH1sG5Png$U90dMMykAOnZGQD51oc6decOlSTN3uRUernMjehDHvc"

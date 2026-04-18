@@ -122,9 +122,9 @@ async def ws_handler(websocket):
     finally:
         WS_CLIENTS.remove(websocket)
 
-def start_mqtt(host, port, username, password, protocol=mqtt.MQTTv311, use_tls=False):
+def start_mqtt(host, port, username, password, protocol=mqtt.MQTTv5, use_tls=False):
     client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION1,
+        mqtt.CallbackAPIVersion.VERSION2,
         client_id="hud_server",
         protocol=protocol
     )
@@ -134,13 +134,13 @@ def start_mqtt(host, port, username, password, protocol=mqtt.MQTTv311, use_tls=F
         client.tls_set(cert_reqs=ssl.CERT_NONE)
         client.tls_insecure_set(True)
     
-    def on_connect(client, userdata, flags, rc, properties):
-        if rc == 0:
+    def on_connect(client, userdata, flags, reason_code, properties=None):
+        if not reason_code.is_failure if hasattr(reason_code, 'is_failure') else reason_code == 0:
             print(f"[HUD] Connected to MQTT broker at {host}:{port}")
-            client.subscribe(node.TOPIC_SWARM, qos=1)
+            client.subscribe(node.TOPIC_SWARM, qos=2)
             client.subscribe(node.TOPIC_HELLO, qos=1)
         else:
-            print(f"[HUD] Failed to connect, rc={rc}")
+            print(f"[HUD] Failed to connect, reason_code={reason_code}")
 
     client.on_connect = on_connect
     client.on_message = on_message
@@ -162,7 +162,7 @@ async def main():
     parser.add_argument("--username", default="hud")
     parser.add_argument("--password", default="secret")
     parser.add_argument("--ws-port", default=8081, type=int)
-    parser.add_argument("--protocol", type=int, default=4, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
+    parser.add_argument("--protocol", type=int, default=5, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
     parser.add_argument("--tls", action="store_true", help="Use TLS for MQTT connection")
     args = parser.parse_args()
 
