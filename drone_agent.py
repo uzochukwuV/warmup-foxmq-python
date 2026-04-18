@@ -15,7 +15,7 @@ import node
 # We can pass these as arguments.
 
 class DroneAgent:
-    def __init__(self, host, port, username, password, agent_id, sector, role="scout", fail_after=0, protocol=mqtt.MQTTv311, vertex_project=None, vertex_endpoint=None):
+    def __init__(self, host, port, username, password, agent_id, sector, role="scout", fail_after=0, protocol=mqtt.MQTTv5, vertex_project=None, vertex_endpoint=None):
         self.agent_id = agent_id
         self.sector = sector
         self.role = role
@@ -46,9 +46,9 @@ class DroneAgent:
         # Hook into node.py's heartbeat
         node.HEARTBEAT_EXTRA_HOOK = self.get_heartbeat_data
 
-        # Build MQTT client (FoxMQ supports MQTTv5, local simple_broker uses MQTTv311)
+        # Build MQTT client (FoxMQ supports MQTTv5)
         self.client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1,
+            mqtt.CallbackAPIVersion.VERSION2,
             client_id=agent_id,
             protocol=protocol,
             userdata={"host": host, "port": port, "agent_id": agent_id},
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--sector", required=True)
     parser.add_argument("--role", default="scout")
     parser.add_argument("--fail-after", type=int, default=0, help="Seconds before simulated crash")
-    parser.add_argument("--protocol", type=int, default=4, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
+    parser.add_argument("--protocol", type=int, default=5, help="MQTT protocol version (4 = 3.1.1, 5 = 5.0)")
     parser.add_argument("--tls", action="store_true", help="Use TLS for MQTT connection")
     parser.add_argument("--vertex-project", help="Google Cloud Project ID for Vertex AI")
     parser.add_argument("--vertex-endpoint", help="Vertex AI Endpoint ID")

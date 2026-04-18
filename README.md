@@ -24,16 +24,28 @@ This submission includes full live integrations for the Vertex Swarm Challenge:
    pip install -r requirements.txt
    ```
 
-2. **Configure Live Integrations (Optional but recommended)**:
-   If you have a live FoxMQ endpoint and a Vertex AI Endpoint, export the following environment variables. If these are omitted, the script falls back to a local minimal broker and a deterministic mock detection timer for testing purposes.
+2. **Install and Run FoxMQ (Local Broker)**:
+   This project relies on the official FoxMQ BFT MQTT 5.0 broker for exactly-once consensus (QoS 2). You can install it using the provided script or manually via the official guide.
    ```bash
-   # FoxMQ Live Credentials
-   export FOXMQQ_HOST="<foxmq-broker-url>"
-   export FOXMQQ_PORT=1883
-   export FOXMQQ_USER="<your-username>"
-   export FOXMQQ_PASS="<your-password>"
-   export FOXMQQ_PROTOCOL=5  # Use 5 for MQTTv5 (FoxMQ), 4 for MQTTv311
-   export FOXMQQ_TLS="true"  # Set to true if FoxMQ requires TLS
+   ./install_foxmq.sh
+   
+   # Add a user (e.g. username: producer, password: password)
+   ./foxmq user add
+   
+   # Start the broker in the background
+   ./foxmq run --secret-key-file=foxmq.d/key_0.pem &
+   ```
+
+3. **Configure Live Integrations (Optional for Vertex AI)**:
+   If you have a live Vertex AI Endpoint, export the following environment variables. If these are omitted, the script falls back to local simulation logic for testing purposes.
+   ```bash
+   # FoxMQ Live Credentials (if running remotely)
+   # export FOXMQQ_HOST="<foxmq-broker-url>"
+   # export FOXMQQ_PORT=1883
+   # export FOXMQQ_USER="producer"
+   # export FOXMQQ_PASS="password"
+   # export FOXMQQ_PROTOCOL=5  # Use 5 for MQTTv5 (FoxMQ)
+   # export FOXMQQ_TLS="true"  # Set to true if FoxMQ requires TLS
    
    # Vertex AI Live Credentials
    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
@@ -41,7 +53,7 @@ This submission includes full live integrations for the Vertex Swarm Challenge:
    export VERTEX_ENDPOINT="<your-vertex-endpoint-id>"
    ```
 
-3. **Run the scenario script**:
+4. **Run the scenario script**:
    ```bash
    ./run_scenario.sh
    ```

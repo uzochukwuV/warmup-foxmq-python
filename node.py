@@ -599,16 +599,17 @@ def stale_monitor_loop() -> None:
         time.sleep(STALE_CHECK_INTERVAL_SEC)
 
 
-def on_connect(client: mqtt.Client, userdata, flags, reason_code):
+def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties=None):
     """Called when the client connects to the FoxMQ broker."""
     global HEARTBEAT_THREAD, STALE_THREAD
-    if reason_code == 0:
+    # In VERSION2, reason_code is a ReasonCode object, we can check if it's success
+    if not reason_code.is_failure if hasattr(reason_code, 'is_failure') else reason_code == 0:
         print(f"[CONNECTED] broker={userdata['host']}:{userdata['port']}")
 
-        # Subscribe to the shared swarm topics
-        client.subscribe(TOPIC_SWARM, qos=1)
+        # Subscribe to the shared swarm topics with QoS 2 for consensus
+        client.subscribe(TOPIC_SWARM, qos=2)
         client.subscribe(TOPIC_HELLO, qos=1)
-        print(f"[SUBSCRIBED] {TOPIC_SWARM}, {TOPIC_HELLO}")
+        print(f"[SUBSCRIBED] {TOPIC_SWARM} (QoS 2), {TOPIC_HELLO} (QoS 1)")
 
         hello = {
             "type": "HELLO",
@@ -728,8 +729,8 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
     print(f"[STATE] {json.dumps(live_state_snapshot, sort_keys=True)}")
 
 
-def on_disconnect(client: mqtt.Client, userdata, rc):
-    print(f"[DISCONNECTED] reason={rc}")
+def on_disconnect(client: mqtt.Client, userdata, flags, reason_code, properties=None):
+    print(f"[DISCONNECTED] reason={reason_code}")
 
 
 # ---------------------------------------------------------------------------
@@ -740,14 +741,14 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def publish_json(client: mqtt.Client, topic: str, data: dict) -> None:
-    """Publish a signed envelope with payload and signature (QoS 1)."""
+def publish_json(client: mqtt.Client, topic: str, data: dict, qos: int = 2) -> None:
+    """Publish a signed envelope with payload and signature (QoS 2 by default for FoxMQ consensus)."""
     envelope = {
         "payload": data,
         "sig": sign_payload(data),
     }
     payload = json.dumps(envelope, sort_keys=True)
-    client.publish(topic, payload, qos=1)
+    client.publish(topic, payload, qos=qos)
     print(f"[SEND] topic={topic}  payload={payload}")
 
 
@@ -764,11 +765,11 @@ def main() -> None:
     parser.add_argument("--agent-id", required=True, help="Unique ID for this agent")
     args = parser.parse_args()
 
-    # Build MQTTv311 client
+    # Build MQTTv5 client for FoxMQ
     client = mqtt.Client(
-        mqtt.CallbackAPIVersion.VERSION1,
+        mqtt.CallbackAPIVersion.VERSION2,
         client_id=args.agent_id,
-        protocol=mqtt.MQTTv311,
+        protocol=mqtt.MQTTv5,
         userdata={"host": args.host, "port": args.port, "agent_id": args.agent_id},
     )
 

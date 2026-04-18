@@ -6,9 +6,9 @@ echo "Starting SwarmRescue-NG Scenario..."
 # 1. FoxMQ Live Broker
 MQTT_HOST=${FOXMQQ_HOST:-"127.0.0.1"}
 MQTT_PORT=${FOXMQQ_PORT:-1883}
-MQTT_USER=${FOXMQQ_USER:-"agent"}
-MQTT_PASS=${FOXMQQ_PASS:-"secret"}
-MQTT_PROTOCOL=${FOXMQQ_PROTOCOL:-4} # 4=MQTTv311, 5=MQTTv5
+MQTT_USER=${FOXMQQ_USER:-"producer"}
+MQTT_PASS=${FOXMQQ_PASS:-"password"}
+MQTT_PROTOCOL=${FOXMQQ_PROTOCOL:-5} # 4=MQTTv311, 5=MQTTv5
 MQTT_TLS_FLAG=""
 if [ "$FOXMQQ_TLS" = "true" ]; then
     MQTT_TLS_FLAG="--tls"
@@ -23,11 +23,19 @@ else
     echo "Vertex AI Integration Disabled (Running local simulation logic)"
 fi
 
-# Start local Python Broker ONLY if running locally
+# Check for FoxMQ binary locally
 if [ "$MQTT_HOST" = "127.0.0.1" ]; then
-    echo "Starting local Python MQTT Broker on port 1883"
-    python simple_broker.py &
-    sleep 2
+    if [ ! -f "./foxmq" ]; then
+        echo "Error: ./foxmq binary not found!"
+        echo "Please download FoxMQ and place it in this directory."
+        echo "Example:"
+        echo "  curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.1/foxmq_0.3.1_linux-amd64.zip"
+        echo "  unzip foxmq_0.3.1_linux-amd64.zip && chmod +x foxmq"
+        echo "  ./foxmq address-book from-range 127.0.0.1 19793 19793"
+        echo "  ./foxmq run --secret-key-file=foxmq.d/key_0.pem &"
+        exit 1
+    fi
+    echo "Using local FoxMQ broker."
 fi
 
 # Kill existing processes on exit
