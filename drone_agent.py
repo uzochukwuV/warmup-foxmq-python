@@ -4,6 +4,7 @@ import threading
 import json
 import sys
 import os
+from dataclasses import asdict
 import paho.mqtt.client as mqtt
 from google.cloud import aiplatform
 
@@ -21,6 +22,7 @@ class DroneAgent:
         self.role = role
         self.position = [0, 0] # x, y on a grid
         self.battery = 100
+        self._battery_offset = 0  # tracks recharge additions
         self.sector_progress = 0
         self.fail_after = fail_after
         
@@ -42,6 +44,7 @@ class DroneAgent:
         
         self.victim_detected = False
         self.victim_position = None
+        self.relay_target = None
 
         # Hook into node.py's heartbeat
         node.HEARTBEAT_EXTRA_HOOK = self.get_heartbeat_data
@@ -91,7 +94,13 @@ class DroneAgent:
 
             msg_type = event.get("type")
             
-            if msg_type == "VICTIM_DETECTED" and event.get("peer_id") != self.agent_id:
+            if msg_type == "BATTERY_TRANSFER" and event.get("target_id") == self.agent_id:
+                amount = int(event.get("amount", 20))
+                self._battery_offset += amount
+                self.battery = min(100, self.battery + amount)
+                print(f"[{self.agent_id}] Battery recharged +{amount}% by {event.get('peer_id')} -> {self.battery}%")
+
+            elif msg_type == "VICTIM_DETECTED" and event.get("peer_id") != self.agent_id:
                 print(f"[{self.agent_id}] Heard VICTIM_DETECTED from {event.get('peer_id')} at {event.get('position')}")
                 # A scout could create a TASK_SECURE here, or a leader could.
                 # Let's say if we hear VICTIM_DETECTED, the leader creates a TASK_SECURE
@@ -154,13 +163,17 @@ class DroneAgent:
                 os._exit(1)
                 
             # Update battery and progress
-            self.battery = max(0, 100 - int(elapsed / 2))
+            self.battery = max(0, min(100, 100 - int(elapsed / 2) + self._battery_offset))
             if self.sector_progress < 100:
                 self.sector_progress = min(100, int((elapsed / 60) * 100))
-                
-            # Mock movement (just simple x, y updates)
-            self.position[0] += 1
-            self.position[1] += 1
+
+            # Only move while battery > 0
+            if self.battery > 0:
+                if self.role == "relay":
+                    self._relay_behavior()
+                else:
+                    self.position[0] += 1
+                    self.position[1] += 1
             
             # Mock finding a victim (e.g., if agent_01 after 20 seconds)
             if not self.victim_detected and elapsed > 20 and self.agent_id == "drone_01":
@@ -202,6 +215,47 @@ class DroneAgent:
                 self.publish_task_result(task_id, result_str)
                                 
             time.sleep(2)
+
+    def _relay_behavior(self):
+        BATTERY_LOW = 25
+        TRANSFER_AMOUNT = 30
+        TRANSFER_DISTANCE = 5
+
+        with node.STATE_LOCK:
+            peers = {pid: asdict(p) for pid, p in node.STATE.items()
+                     if pid != self.agent_id and p.status == "ready"}
+
+        # Find the lowest-battery peer that needs help
+        target_id, target_pos, lowest = None, None, BATTERY_LOW
+        for pid, p in peers.items():
+            batt = p.get("battery") or 100
+            pos = p.get("position")
+            if batt <= lowest and pos is not None:
+                lowest, target_id, target_pos = batt, pid, pos
+
+        if target_id is None:
+            self.position[0] += 1  # patrol slowly
+            self.relay_target = None
+            return
+
+        self.relay_target = target_id
+        dx = target_pos[0] - self.position[0]
+        dy = target_pos[1] - self.position[1]
+        dist = (dx**2 + dy**2) ** 0.5
+        if dist > TRANSFER_DISTANCE:
+            self.position[0] += int(dx / dist) if dist else 0
+            self.position[1] += int(dy / dist) if dist else 0
+        else:
+            msg = {
+                "type": "BATTERY_TRANSFER",
+                "peer_id": self.agent_id,
+                "ts": node.now_ms(),
+                "target_id": target_id,
+                "amount": TRANSFER_AMOUNT,
+                "position": self.position,
+            }
+            node.publish_json(self.client, node.TOPIC_SWARM, msg)
+            print(f"[{self.agent_id}] BATTERY_TRANSFER -> {target_id} +{TRANSFER_AMOUNT}%")
 
     def start(self):
         print(f"[INFO] Connecting DroneAgent {self.agent_id} to FoxMQ at {self.host}:{self.port}")

@@ -199,7 +199,7 @@ def parse_message(topic: str, raw_message: str) -> Optional[dict]:
         "task_id": data.get("task_id"),
         "result": data.get("result"),
     }
-    for field in ["position", "sector", "battery", "sector_progress"]:
+    for field in ["position", "sector", "battery", "sector_progress", "target_id", "amount"]:
         if field in data:
             event[field] = data[field]
     return event
@@ -700,6 +700,11 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
                 details={"topic": topic, "recv_idx": recv_order_index},
             )
         print(f"[STATE] {json.dumps({k: asdict(v) for k, v in sorted(state_snapshot.items())}, sort_keys=True)}")
+        return
+
+    if event["type"] == "BATTERY_TRANSFER":
+        append_proof_log("BATTERY_TRANSFER", event["peer_id"], event["ts"],
+                         {"target_id": event.get("target_id"), "amount": event.get("amount")})
         return
 
     if event["type"] == "TASK_RESULT":

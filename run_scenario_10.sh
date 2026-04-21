@@ -25,18 +25,14 @@ fi
 
 # Check for FoxMQ binary locally
 if [ "$MQTT_HOST" = "127.0.0.1" ]; then
-    if [ ! -f "./foxmq" ]; then
-        echo "Error: ./foxmq binary not found!"
-        echo "Please download FoxMQ and place it in this directory."
-        echo "Example:"
-        echo "  curl -LO https://github.com/tashigit/foxmq/releases/download/v0.3.1/foxmq_0.3.1_linux-amd64.zip"
-        echo "  unzip foxmq_0.3.1_linux-amd64.zip && chmod +x foxmq"
-        echo "  ./foxmq address-book from-range 127.0.0.1 19793 19793"
-        echo "  ./foxmq run --secret-key-file=foxmq.d/key_0.pem &"
+    FOXMQ_BIN="./foxmq"
+    [ -f "./foxmq.exe" ] && FOXMQ_BIN="./foxmq.exe"
+    if [ ! -f "$FOXMQ_BIN" ]; then
+        echo "Error: FoxMQ binary not found!"
         exit 1
     fi
     echo "Starting local FoxMQ broker on port 1883"
-    ./foxmq run --secret-key-file=foxmq.d/key_0.pem &
+    "$FOXMQ_BIN" run --secret-key-file=foxmq.d/key_0.pem &
     sleep 2
 fi
 
@@ -44,34 +40,34 @@ fi
 trap 'kill $(jobs -p)' EXIT
 
 # Start HTTP Server for UI
-python3 -m http.server 8000 &
+py -m http.server 8000 &
 
 # Start HUD Server
-python hud_server.py --host $MQTT_HOST --port $MQTT_PORT --username hud --password secret --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py hud_server.py --host $MQTT_HOST --port $MQTT_PORT --username hud --password secret --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 sleep 2
 
 # Start 10 Drones
 # Drone 01: NW, scout (finds victim after 20s, uses Vertex AI if configured)
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_01 --sector NW --role scout $VERTEX_ARGS --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_01 --sector NW --role scout $VERTEX_ARGS --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 02: NE, scout (fails after 30s)
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_02 --sector NE --role scout --fail-after 30 --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_02 --sector NE --role scout --fail-after 30 --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 03: SW, scout
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_03 --sector SW --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_03 --sector SW --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 04: SE, scout
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_04 --sector SE --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_04 --sector SE --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Drone 05: CENTER, leader
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_05 --sector CENTER --role leader --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_05 --sector CENTER --role leader --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 # Additional 5 Drones for the 10-node scenario
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_06 --sector NORTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_07 --sector SOUTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_08 --sector EAST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_09 --sector WEST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
-python drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_10 --sector BACKUP --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_06 --sector NORTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_07 --sector SOUTH --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_08 --sector EAST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_09 --sector WEST --role scout --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
+py drone_agent.py --host $MQTT_HOST --port $MQTT_PORT --username $MQTT_USER --password $MQTT_PASS --agent-id drone_10 --sector BACKUP --role relay --protocol $MQTT_PROTOCOL $MQTT_TLS_FLAG &
 
 echo "All nodes started."
 echo "Open http://localhost:8000/index.html in your browser to view the HUD."

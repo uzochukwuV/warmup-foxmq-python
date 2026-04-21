@@ -67,6 +67,7 @@
         }
         .drone-ready { background-color: #22c55e; color: #22c55e; }
         .drone-stale { background-color: #ef4444; color: #ef4444; }
+        .drone-relay { background-color: #f59e0b; color: #f59e0b; }
         
         .log-container {
             flex: 1;
@@ -90,6 +91,10 @@
         }
         .log-entry.TASK_RESULT {
             border-left-color: #22c55e;
+        }
+        .log-entry.BATTERY_TRANSFER {
+            border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.1);
         }
         .ts {
             color: #64748b;
@@ -175,7 +180,8 @@
             
             Object.values(drones).forEach(drone => {
                 const isStale = drone.status === 'stale';
-                const statusClass = isStale ? 'drone-stale' : 'drone-ready';
+                const isRelay = drone.role === 'relay';
+                const statusClass = isStale ? 'drone-stale' : isRelay ? 'drone-relay' : 'drone-ready';
                 
                 const el = document.createElement('div');
                 const pos = drone.position || [0, 0];
@@ -189,8 +195,10 @@
                 if(drone.sector === 'CENTER') { ox = 50; oy = 50; }
                 
                 el.className = `drone-dot ${statusClass}`;
-                el.style.left = `${ox + (pos[0] % 20) - 10}%`;
-                el.style.top = `${oy + (pos[1] % 20) - 10}%`;
+                const maxSteps = 200;
+                const range = 18; // ±9% around sector center
+                el.style.left = `${ox + (Math.min(pos[0], maxSteps) / maxSteps) * range - range / 2}%`;
+                el.style.top  = `${oy + (Math.min(pos[1], maxSteps) / maxSteps) * range - range / 2}%`;
                 
                 const label = document.createElement('div');
                 label.className = 'drone-label';
@@ -231,6 +239,7 @@
                     if (ev.type === "VICTIM_DETECTED") details = `Pos: ${ev.raw.position}`;
                     if (ev.type === "TASK_CREATE") details = `Task: ${ev.raw.task?.task_id} (${ev.raw.task?.type})`;
                     if (ev.type === "TASK_RESULT") details = `Result: ${ev.raw.result}`;
+                    if (ev.type === "BATTERY_TRANSFER") details = `-> ${ev.raw.target_id} +${ev.raw.amount}%`;
                     
                     el.innerHTML = `
                         <div class="ts">${new Date(ev.ts).toISOString().split('T')[1].slice(0,-1)}</div>
