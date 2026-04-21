@@ -68,12 +68,14 @@ class DroneAgent:
         self.sim_thread = threading.Thread(target=self.simulation_loop, daemon=True)
 
     def get_heartbeat_data(self):
+        my_state = node.STATE.get(self.agent_id)
         return {
             "position": self.position,
             "sector": self.sector,
             "battery": self.battery,
             "sector_progress": self.sector_progress,
-            "role": self.role
+            "role": self.role,
+            "score": my_state.score if my_state else 100,
         }
 
     def on_message(self, client, userdata, message):

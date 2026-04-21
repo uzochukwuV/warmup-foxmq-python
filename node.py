@@ -68,6 +68,7 @@ class PeerState:
     sector: Optional[str] = None
     battery: Optional[int] = None
     sector_progress: Optional[int] = None
+    score: int = 100
 
 
 @dataclass
@@ -100,6 +101,11 @@ RECENT_MESSAGE_HASHES_SET = set()
 PROOF_LOG = []
 PROOF_LOG_LOCK = threading.Lock()
 SIGNING_SECRET = os.environ.get("SWARM_SIGNING_SECRET", "vertex-swarm-shared-secret")
+
+SCORE_TASK_REWARD = 10
+SCORE_STALE_PENALTY = 20
+SCORE_MIN = 0
+SCORE_MAX = 1000
 TASKS: Dict[str, dict] = {}
 TASKS_LOCK = threading.Lock()
 LOGICAL_TIME_MS = 0
@@ -270,6 +276,14 @@ def parse_task_spec(task_payload: dict) -> Optional[TaskSpec]:
     return TaskSpec(task_id=task_id, type=task_type, requirements=req, payload=payload)
 
 
+def award_score(peer_id: str, delta: int) -> None:
+    """Adjust a peer's merit score, clamped to [SCORE_MIN, SCORE_MAX]."""
+    with STATE_LOCK:
+        peer = STATE.get(peer_id)
+        if peer:
+            peer.score = max(SCORE_MIN, min(SCORE_MAX, peer.score + delta))
+
+
 def eligible_agents(state: Dict[str, PeerState], required_role: str) -> List[str]:
     peers = []
     for peer_id, peer in state.items():
@@ -278,7 +292,8 @@ def eligible_agents(state: Dict[str, PeerState], required_role: str) -> List[str
         if required_role != "any" and peer.role != required_role:
             continue
         peers.append(peer_id)
-    return sorted(peers)
+    # Higher-score agents get task priority; lexicographic order breaks ties
+    return sorted(peers, key=lambda pid: (-getattr(state[pid], "score", 100), pid))
 
 
 def assign_task(task: TaskSpec, state: Dict[str, PeerState], previous_assignees: Optional[List[str]] = None) -> List[str]:
@@ -536,6 +551,7 @@ def reduce_state(previous: Optional[PeerState], event: dict) -> Optional[PeerSta
         sector=event.get("sector") if event.get("sector") is not None else baseline.sector,
         battery=event.get("battery") if event.get("battery") is not None else baseline.battery,
         sector_progress=event.get("sector_progress") if event.get("sector_progress") is not None else baseline.sector_progress,
+        score=baseline.score,
     )
 
 
@@ -578,6 +594,8 @@ def apply_stale_detection(state: Dict[str, PeerState], now_ms_value: int) -> boo
         target_status = "stale" if is_stale else "ready"
         if peer.status != target_status:
             peer.status = target_status
+            if target_status == "stale":
+                peer.score = max(SCORE_MIN, peer.score - SCORE_STALE_PENALTY)
             changed = True
     recompute_roles(state)
     return changed
@@ -693,7 +711,10 @@ def on_message(client: mqtt.Client, userdata, message: mqtt.MQTTMessage):
                 "ts": event["ts"],
             }
         )
-        if not accepted:
+        if accepted:
+            award_score(event["peer_id"], SCORE_TASK_REWARD)
+            print(f"[SCORE] +{SCORE_TASK_REWARD} pts → {event['peer_id']} (task completed)")
+        else:
             append_proof_log(
                 event_type="TASK_RESULT_REJECTED",
                 peer_id=event["peer_id"],
